@@ -173,7 +173,8 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
 
 /** 工作区菜单内容 */
 function WorkspaceMenuContent({ onClose, onCreateWorkspace }: { onClose: () => void; onCreateWorkspace: () => void }) {
-  const { workspaces, currentWorkspaceId, switchWorkspace } = useWorkspaceStore();
+  const { workspaces, currentWorkspaceId, switchWorkspace, deleteWorkspace } = useWorkspaceStore();
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
 
   const handleSwitchWorkspace = async (id: string) => {
     if (id !== currentWorkspaceId) {
@@ -186,6 +187,22 @@ function WorkspaceMenuContent({ onClose, onCreateWorkspace }: { onClose: () => v
     onClose();
     onCreateWorkspace();
   };
+
+  const handleDeleteWorkspace = async (id: string) => {
+    try {
+      await deleteWorkspace(id);
+      setShowDeleteConfirm(null);
+      // 如果删除后还有工作区，关闭菜单
+      if (workspaces.length > 1) {
+        onClose();
+      }
+    } catch (error) {
+      console.error('删除工作区失败:', error);
+    }
+  };
+
+  // 获取要删除的工作区信息
+  const workspaceToDelete = workspaces.find(w => w.id === showDeleteConfirm);
 
   return (
     <div className="py-1">
@@ -200,20 +217,51 @@ function WorkspaceMenuContent({ onClose, onCreateWorkspace }: { onClose: () => v
       ) : (
         <div className="max-h-64 overflow-y-auto">
           {workspaces.map((workspace) => (
-            <button
+            <div
               key={workspace.id}
-              onClick={() => handleSwitchWorkspace(workspace.id)}
-              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+              className={`group relative flex items-center ${
                 workspace.id === currentWorkspaceId
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-text-secondary hover:text-text-primary hover:bg-background-hover'
+                  ? 'bg-primary/10'
+                  : ''
               }`}
             >
-              <div className="font-medium truncate">{workspace.name}</div>
-              <div className="text-xs truncate text-text-tertiary">
-                {workspace.path}
-              </div>
-            </button>
+              <button
+                onClick={() => handleSwitchWorkspace(workspace.id)}
+                className={`flex-1 text-left px-3 py-2 text-sm transition-colors ${
+                  workspace.id === currentWorkspaceId
+                    ? 'text-primary'
+                    : 'text-text-secondary hover:text-text-primary hover:bg-background-hover'
+                }`}
+              >
+                <div className="pr-6 font-medium truncate">{workspace.name}</div>
+                <div className="text-xs truncate text-text-tertiary">
+                  {workspace.path}
+                </div>
+              </button>
+
+              {/* 删除按钮：只在非当前工作区且有多个工作区时显示 */}
+              {workspace.id !== currentWorkspaceId && workspaces.length > 1 && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowDeleteConfirm(workspace.id);
+                  }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-text-tertiary hover:text-danger hover:bg-background-surface opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="删除工作区"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              )}
+
+              {/* 当前工作区标识 */}
+              {workspace.id === currentWorkspaceId && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -229,6 +277,41 @@ function WorkspaceMenuContent({ onClose, onCreateWorkspace }: { onClose: () => v
           创建工作区
         </button>
       </div>
+
+      {/* 删除确认弹窗 */}
+      {showDeleteConfirm && workspaceToDelete && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-50"
+            onClick={() => setShowDeleteConfirm(null)}
+          />
+          <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-80 bg-background-elevated rounded-xl border border-border shadow-xl p-5">
+            <h3 className="text-base font-semibold text-text-primary mb-2">
+              删除工作区
+            </h3>
+            <p className="text-sm text-text-secondary mb-4">
+              确定要删除 <span className="font-medium text-text-primary">"{workspaceToDelete.name}"</span> 吗？
+            </p>
+            <p className="text-xs text-text-tertiary mb-5">
+              此操作只会从列表中移除该工作区，不会删除实际的文件夹。
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowDeleteConfirm(null)}
+                className="px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-background-hover rounded-lg transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => handleDeleteWorkspace(showDeleteConfirm)}
+                className="px-3 py-1.5 text-sm bg-danger text-white rounded-lg hover:bg-danger-hover transition-colors"
+              >
+                删除
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
