@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 全局样式 */
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0F0F11;
+  color: #F8F8F8;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 优化的滚动条样式 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* 优化的 prose 样式 */
+.prose {
+  --tw-prose-body: #F8F8F8;
+  --tw-prose-headings: #F8F8F8;
+  --tw-prose-lead: #B4B4B8;
+  --tw-prose-links: #60A5FA;
+  --tw-prose-bold: #F8F8F8;
+  --tw-prose-counters: #8E8E93;
+  --tw-prose-bullets: #B4B4B8;
+  --tw-prose-hr: rgba(255, 255, 255, 0.15);
+  --tw-prose-quotes: #B4B4B8;
+  --tw-prose-quote-borders: rgba(255, 255, 255, 0.15);
+  --tw-prose-code: #F8F8F8;
+  --tw-prose-pre-code: #B4B4B8;
+  --tw-prose-pre-bg: #25252B;
+  --tw-prose-th-borders: rgba(255, 255, 255, 0.15);
+  --tw-prose-td-borders: rgba(255, 255, 255, 0.15);
+}
+
+/* Markdown 代码块样式 */
+.prose pre {
+  background-color: #25252B;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0 0 12px 12px;
+  padding: 16px;
+  margin: 16px 0;
+  overflow-x: auto;
+}
+
+.prose code {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.prose :not(pre) > code {
+  background-color: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+  color: #60A5FA;
+}
+
+/* 标题样式 */
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.prose h1 { font-size: 24px; }
+.prose h2 { font-size: 20px; }
+.prose h3 { font-size: 18px; }
+
+/* 列表样式 */
+.prose ul,
+.prose ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.prose li {
+  margin: 4px 0;
+}
+
+/* 引用样式 */
+.prose blockquote {
+  border-left: 4px solid rgba(255, 255, 255, 0.2);
+  padding-left: 16px;
+  margin: 16px 0;
+  color: #B4B4B8;
+  font-style: italic;
+}

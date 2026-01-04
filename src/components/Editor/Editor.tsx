@@ -1,0 +1,278 @@
+/**
+ * CodeMirror 6 编辑器组件
+ */
+
+import { useEffect, useRef, useMemo } from 'react';
+import { EditorState } from '@codemirror/state';
+import {
+  EditorView,
+  keymap,
+  highlightSpecialChars,
+  drawSelection,
+  dropCursor,
+  rectangularSelection,
+  crosshairCursor,
+  highlightActiveLine,
+  lineNumbers,
+} from '@codemirror/view';
+import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+import { bracketMatching, indentOnInput } from '@codemirror/language';
+import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
+import { searchKeymap, highlightSelectionMatches } from '@codemirror/search';
+import { lintGutter } from '@codemirror/lint';
+
+// 深色主题
+const darkTheme = EditorView.theme({
+  '&': {
+    height: '100%',
+    backgroundColor: '#0A0A0B',
+    color: '#FAFAFA',
+    fontSize: '13px',
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Consolas', monospace",
+  },
+  '.cm-scroller': {
+    overflow: 'auto',
+    height: '100%',
+  },
+  '.cm-content': {
+    padding: '8px 0',
+    minHeight: '100%',
+  },
+  '.cm-focused': {
+    outline: 'none',
+  },
+  '.cm-line': {
+    padding: '0 4px',
+    lineHeight: '1.6',
+  },
+  '.cm-lineNumbers': {
+    color: '#52525B',
+    backgroundColor: '#0A0A0B',
+  },
+  '.cm-activeLineGutter': {
+    backgroundColor: 'transparent',
+    color: '#A1A1AA',
+  },
+  '.cm-activeLine': {
+    backgroundColor: '#141416',
+  },
+  '&.cm-focused .cm-activeLine': {
+    backgroundColor: '#1C1C1E',
+  },
+  '.cm-selectionBackground': {
+    background: 'rgba(59, 130, 246, 0.3)',
+  },
+  '&.cm-focused .cm-selectionBackground': {
+    background: 'rgba(59, 130, 246, 0.4)',
+  },
+  '.cm-selectionMatch': {
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  '.cm-cursor': {
+    borderLeftColor: '#3B82F6',
+    borderLeftWidth: '2px',
+  },
+  '.cm-gutters': {
+    backgroundColor: '#0A0A0B',
+    color: '#52525B',
+    border: 'none',
+  },
+  '.cm-gutterElement': {
+    padding: '0 4px 0 8px',
+    minWidth: '30px',
+    textAlign: 'right',
+  },
+  '.cm-bracket': {
+    color: '#A1A1AA',
+  },
+  '.cm-matchingBracket': {
+    color: '#22C55E',
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+  },
+  '.cm-nonmatchingBracket': {
+    color: '#EF4444',
+  },
+}, { dark: true });
+
+// 获取语言扩展
+async function getLanguageExtension(lang: string) {
+  const langMap: Record<string, any> = {
+    javascript: () => import('@codemirror/lang-javascript').then(m => m.javascript({ jsx: true })),
+    typescript: () => import('@codemirror/lang-javascript').then(m => m.javascript({ jsx: true, typescript: true })),
+    json: () => import('@codemirror/lang-json').then(m => m.json()),
+    html: () => import('@codemirror/lang-html').then(m => m.html()),
+    css: () => import('@codemirror/lang-css').then(m => m.css()),
+    python: () => import('@codemirror/lang-python').then(m => m.python()),
+    markdown: () => import('@codemirror/lang-markdown').then(m => m.markdown()),
+  };
+
+  return langMap[lang]?.() || Promise.resolve(null);
+}
+
+interface EditorProps {
+  /** 编辑器内容 */
+  value: string;
+  /** 语言类型 */
+  language: string;
+  /** 内容变化回调 */
+  onChange: (value: string) => void;
+  /** 只读模式 */
+  readOnly?: boolean;
+  /** 保存回调 */
+  onSave?: () => void;
+  /** 是否显示行号 */
+  lineNumbers?: boolean;
+}
+
+export function CodeMirrorEditor({
+  value,
+  language,
+  onChange,
+  readOnly = false,
+  onSave,
+  lineNumbers: showLineNumbers = true,
+}: EditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+
+  // 自定义保存快捷键
+  const saveKeymap = useMemo(
+    () => keymap.of(onSave ? [{ key: 'Mod-s', run: () => { onSave(); return true; } }] : []),
+    [onSave]
+  );
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    // 创建编辑器状态
+    const state = EditorState.create({
+      doc: value,
+      extensions: [
+        darkTheme,
+        highlightSpecialChars(),
+        drawSelection(),
+        dropCursor(),
+        rectangularSelection(),
+        crosshairCursor(),
+        highlightActiveLine(),
+        EditorView.lineWrapping,
+        showLineNumbers ? lineNumbers() : [],
+        highlightSelectionMatches(),
+        history(),
+        bracketMatching(),
+        closeBrackets(),
+        indentOnInput(),
+        EditorView.editable.of(!readOnly),
+        saveKeymap,
+        keymap.of(defaultKeymap),
+        keymap.of(historyKeymap),
+        keymap.of(closeBracketsKeymap),
+        keymap.of(searchKeymap),
+        lintGutter(),
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            const newValue = update.state.doc.toString();
+            onChange(newValue);
+          }
+        }),
+      ],
+    });
+
+    // 创建编辑器视图
+    const view = new EditorView({
+      state,
+      parent: containerRef.current,
+    });
+    viewRef.current = view;
+
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+    // 仅在挂载时初始化
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 更新语言 (需要重新创建编辑器以应用语言扩展)
+  useEffect(() => {
+    const updateLanguage = async () => {
+      if (!viewRef.current) return;
+
+      const langExtension = await getLanguageExtension(language);
+      if (langExtension) {
+        // 创建新的编辑器状态并替换
+        const newState = EditorState.create({
+          doc: value,
+          extensions: [
+            darkTheme,
+            highlightSpecialChars(),
+            drawSelection(),
+            dropCursor(),
+            rectangularSelection(),
+            crosshairCursor(),
+            highlightActiveLine(),
+            EditorView.lineWrapping,
+            showLineNumbers ? lineNumbers() : [],
+            highlightSelectionMatches(),
+            history(),
+            langExtension,
+            bracketMatching(),
+            closeBrackets(),
+            indentOnInput(),
+            EditorView.editable.of(!readOnly),
+            saveKeymap,
+            keymap.of(defaultKeymap),
+            keymap.of(historyKeymap),
+            keymap.of(closeBracketsKeymap),
+            keymap.of(searchKeymap),
+            lintGutter(),
+            EditorView.updateListener.of((update) => {
+              if (update.docChanged) {
+                const newValue = update.state.doc.toString();
+                onChange(newValue);
+              }
+            }),
+          ],
+        });
+
+        // 重新创建编辑器视图
+        const parent = viewRef.current.dom.parentElement;
+        if (parent) {
+          viewRef.current.destroy();
+          const newView = new EditorView({
+            state: newState,
+            parent,
+          });
+          viewRef.current = newView;
+        }
+      }
+    };
+
+    updateLanguage();
+  }, [language]);
+
+  // 更新内容（从外部更新时）
+  useEffect(() => {
+    if (!viewRef.current) return;
+
+    const currentValue = viewRef.current.state.doc.toString();
+    if (currentValue !== value) {
+      const transaction = viewRef.current.state.update({
+        changes: {
+          from: 0,
+          to: currentValue.length,
+          insert: value,
+        },
+      });
+      viewRef.current.dispatch(transaction);
+    }
+  }, [value]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="h-full w-full overflow-hidden"
+      style={{ fontSize: '13px' }}
+    />
+  );
+}
