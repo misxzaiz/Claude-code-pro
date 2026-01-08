@@ -2,7 +2,7 @@ use crate::error::{AppError, Result};
 use crate::models::config::Config;
 use crate::models::events::StreamEvent;
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio, Child};
 use std::sync::Arc;
 use tauri::{Emitter, Window};
@@ -28,47 +28,170 @@ impl ChatSession {
     }
 }
 
+/// 从 claude.cmd 路径解析出 Node.js 和 cli.js 的路径
+///
+/// claude.cmd 通常位于: C:\Users\...\AppData\Roaming\npm\claude.cmd
+/// node.exe 通常在同一目录或系统 PATH 中
+/// cli.js 位于: node_modules\@anthropic-ai\claude-code\cli.js
+#[cfg(windows)]
+fn resolve_node_and_cli(claude_cmd_path: &str) -> Result<(String, String)> {
+    let cmd_path = Path::new(claude_cmd_path);
+
+    // 获取 .cmd 文件所在的目录（通常是 npm 目录）
+    let npm_dir = cmd_path.parent()
+        .ok_or_else(|| AppError::ProcessError("无法获取 claude.cmd 的父目录".to_string()))?;
+
+    // 查找 node.exe
+    let node_exe = find_node_exe(npm_dir)?;
+
+    // 查找 cli.js
+    let cli_js = find_cli_js(npm_dir)?;
+
+    eprintln!("[resolve_node_and_cli] node_exe: {}", node_exe);
+    eprintln!("[resolve_node_and_cli] cli_js: {}", cli_js);
+
+    Ok((node_exe, cli_js))
+}
+
+/// 查找 node.exe 可执行文件
+#[cfg(windows)]
+fn find_node_exe(npm_dir: &Path) -> Result<String> {
+    // 1. 检查 npm 目录下是否有 node.exe
+    let local_node = npm_dir.join("node.exe");
+    if local_node.exists() {
+        return Ok(local_node.to_string_lossy().to_string());
+    }
+
+    // 2. 使用 where 命令查找系统中的 node.exe
+    let output = Command::new("where")
+        .args(["node"])
+        .output()
+        .map_err(|e| AppError::ProcessError(format!("查找 node.exe 失败: {}", e)))?;
+
+    if output.status.success() {
+        let node_path = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .map(|s| s.trim().to_string());
+
+        if let Some(path) = node_path {
+            return Ok(path);
+        }
+    }
+
+    // 3. 尝试常见路径
+    let common_paths = vec![
+        r"C:\Program Files\nodejs\node.exe",
+        r"C:\Program Files (x86)\nodejs\node.exe",
+    ];
+
+    for path in common_paths {
+        if Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+
+    Err(AppError::ProcessError("无法找到 node.exe".to_string()))
+}
+
+/// 查找 cli.js 文件
+#[cfg(windows)]
+fn find_cli_js(npm_dir: &Path) -> Result<String> {
+    // cli.js 通常在: npm_dir/node_modules/@anthropic-ai/claude-code/cli.js
+    let cli_js = npm_dir
+        .join("node_modules")
+        .join("@anthropic-ai")
+        .join("claude-code")
+        .join("cli.js");
+
+    if cli_js.exists() {
+        return Ok(cli_js.to_string_lossy().to_string());
+    }
+
+    // 如果不在预期位置，尝试全局 node_modules
+    if let Some(roaming_appdata) = std::env::var("APPDATA").ok() {
+        let global_cli = PathBuf::from(roaming_appdata)
+            .join("npm")
+            .join("node_modules")
+            .join("@anthropic-ai")
+            .join("claude-code")
+            .join("cli.js");
+
+        if global_cli.exists() {
+            return Ok(global_cli.to_string_lossy().to_string());
+        }
+    }
+
+    Err(AppError::ProcessError(format!(
+        "无法找到 cli.js，预期位置: {}",
+        cli_js.display()
+    )))
+}
+
+/// 构建直接调用 Node.js 的命令
+#[cfg(windows)]
+fn build_node_command(cli_js: &str, message: &str) -> Command {
+    let mut cmd = Command::new("node");
+    cmd.arg(cli_js)
+        .arg("--print")
+        .arg("--verbose")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--permission-mode")
+        .arg("bypassPermissions")
+        .arg(message);
+    cmd
+}
+
+/// 构建直接调用 Node.js 的命令（continue_chat）
+#[cfg(windows)]
+fn build_node_command_resume(cli_js: &str, session_id: &str, message: &str) -> Command {
+    let mut cmd = Command::new("node");
+    cmd.arg(cli_js)
+        .arg("--resume")
+        .arg(session_id)
+        .arg("--print")
+        .arg("--verbose")
+        .arg("--output-format")
+        .arg("stream-json")
+        .arg("--permission-mode")
+        .arg("bypassPermissions")
+        .arg(message);
+    cmd
+}
+
 impl ChatSession {
     /// 启动新的聊天会话
     pub fn start(config: &Config, message: &str) -> Result<Self> {
         eprintln!("[ChatSession::start] 启动 Claude 会话");
         eprintln!("[ChatSession::start] claude_cmd: {}", config.claude_cmd);
-        eprintln!("[ChatSession::start] message: {}", message);
+        eprintln!("[ChatSession::start] message 长度: {} 字符", message.len());
 
-        // 在 Windows 上，.cmd 文件需要通过 cmd.exe 执行
-        // 参数必须分别传递，不能合并为一个字符串
+        // 根据平台构建不同的命令
         #[cfg(windows)]
-        let mut cmd = Command::new("cmd");
-        #[cfg(windows)]
-        cmd.args([
-            "/c",
-            &config.claude_cmd,
-            "--print",
-            "--verbose",
-            "--output-format",
-            "stream-json",
-            "--permission-mode",
-            "bypassPermissions",
-            message,
-        ]);
+        let mut cmd = {
+            // Windows: 直接调用 Node.js，绕过 cmd.exe
+            let (_node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+            build_node_command(&cli_js, message)
+        };
 
         #[cfg(not(windows))]
-        let mut cmd = Command::new(&config.claude_cmd);
-        #[cfg(not(windows))]
-        cmd.args([
-            "--print",
-            "--verbose",
-            "--output-format",
-            "stream-json",
-            "--permission-mode",
-            "bypassPermissions",
-            message,
-        ]);
+        let mut cmd = {
+            // Unix/Mac: 直接使用 claude 命令
+            Command::new(&config.claude_cmd)
+                .arg("--print")
+                .arg("--verbose")
+                .arg("--output-format")
+                .arg("stream-json")
+                .arg("--permission-mode")
+                .arg("bypassPermissions")
+                .arg(message)
+        };
 
         cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        // Windows 上隐藏 CMD 窗口
+        // Windows 上隐藏窗口
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
 
@@ -165,6 +288,11 @@ impl ChatSession {
         }
 
         eprintln!("[ChatSession::read_events] 读取结束，共处理 {} 行", line_count);
+
+        // 【关键修复】进程退出时自动发送 session_end 事件
+        // 这样即使进程异常退出，前端也能收到通知并重置 isStreaming 状态
+        eprintln!("[ChatSession::read_events] 发送 session_end 事件");
+        callback(StreamEvent::SessionEnd);
     }
 }
 
@@ -180,7 +308,7 @@ pub async fn start_chat(
     state: tauri::State<'_, crate::AppState>,
     work_dir: Option<String>,
 ) -> Result<String> {
-    eprintln!("[start_chat] 收到消息: {}", message);
+    eprintln!("[start_chat] 收到消息，长度: {} 字符", message.len());
 
     // 从 AppState 获取实际配置
     let config_store = state.config_store.lock()
@@ -264,7 +392,7 @@ pub async fn continue_chat(
     work_dir: Option<String>,
 ) -> Result<()> {
     eprintln!("[continue_chat] 继续会话: {}", session_id);
-    eprintln!("[continue_chat] 消息: {}", message);
+    eprintln!("[continue_chat] 消息长度: {} 字符", message.len());
 
     // 从 AppState 获取实际配置
     let config_store = state.config_store.lock()
@@ -293,39 +421,32 @@ pub async fn continue_chat(
     // 使用 Claude CLI 原生的 --resume 参数恢复会话
     eprintln!("[continue_chat] 使用 --resume 参数恢复会话");
 
-    // 在 Windows 上，.cmd 文件需要通过 cmd.exe 执行
+    // 根据平台构建不同的命令
     #[cfg(windows)]
-    let mut cmd = Command::new("cmd");
-    #[cfg(windows)]
-    cmd.args([
-        "/c",
-        &config.claude_cmd,
-        "--resume",
-        &session_id,
-        "--print",
-        "--verbose",
-        "--output-format", "stream-json",
-        "--permission-mode", "bypassPermissions",
-        &message,
-    ]);
+    let mut cmd = {
+        // Windows: 直接调用 Node.js
+        let (_node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+        build_node_command_resume(&cli_js, &session_id, &message)
+    };
 
     #[cfg(not(windows))]
-    let mut cmd = Command::new(&config.claude_cmd);
-    #[cfg(not(windows))]
-    cmd.args([
-        "--resume",
-        &session_id,
-        "--print",
-        "--verbose",
-        "--output-format", "stream-json",
-        "--permission-mode", "bypassPermissions",
-        &message,
-    ]);
+    let mut cmd = {
+        Command::new(&config.claude_cmd)
+            .arg("--resume")
+            .arg(&session_id)
+            .arg("--print")
+            .arg("--verbose")
+            .arg("--output-format")
+            .arg("stream-json")
+            .arg("--permission-mode")
+            .arg("bypassPermissions")
+            .arg(&message)
+    };
 
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    // Windows 上隐藏 CMD 窗口
+    // Windows 上隐藏窗口
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
