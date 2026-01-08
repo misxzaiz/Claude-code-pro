@@ -232,6 +232,24 @@ const COMMAND_PROMPTS: Record<string, (args: string[], fileRefs: string[]) => st
     }
     return '请为当前项目生成文档，包括 README、API 文档等。';
   },
+
+  // 设计相关 - Frontend-design Skill
+  'frontend-design-skill': (args, fileRefs) => {
+    let content = '';
+
+    // 文件引用
+    if (fileRefs.length > 0) {
+      content += `\n\n目标文件：${fileRefs.join(', ')}`;
+    }
+
+    // 用户需求
+    if (args.length > 0) {
+      content += `\n\n具体需求：${args.join(' ')}`;
+    }
+
+    // 明确触发词，确保 Skill 被激活
+    return `请使用 Frontend-design Skill 为我创建/优化一个 production-grade 的 frontend interface${content}`;
+  },
 };
 
 /**

@@ -185,4 +185,11 @@ export const builtinCommands: Command[] = [
     type: 'builtin',
     description: '使用指导',
   },
+
+  // 设计相关
+  {
+    name: 'frontend-design-skill',
+    type: 'builtin',
+    description: 'Frontend-design Skill',
+  },
 ];
