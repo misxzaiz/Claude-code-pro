@@ -130,8 +130,8 @@ fn find_cli_js(npm_dir: &Path) -> Result<String> {
 
 /// 构建直接调用 Node.js 的命令
 #[cfg(windows)]
-fn build_node_command(cli_js: &str, message: &str) -> Command {
-    let mut cmd = Command::new("node");
+fn build_node_command(node_exe: &str, cli_js: &str, message: &str) -> Command {
+    let mut cmd = Command::new(node_exe);
     cmd.arg(cli_js)
         .arg("--print")
         .arg("--verbose")
@@ -145,8 +145,8 @@ fn build_node_command(cli_js: &str, message: &str) -> Command {
 
 /// 构建直接调用 Node.js 的命令（continue_chat）
 #[cfg(windows)]
-fn build_node_command_resume(cli_js: &str, session_id: &str, message: &str) -> Command {
-    let mut cmd = Command::new("node");
+fn build_node_command_resume(node_exe: &str, cli_js: &str, session_id: &str, message: &str) -> Command {
+    let mut cmd = Command::new(node_exe);
     cmd.arg(cli_js)
         .arg("--resume")
         .arg(session_id)
@@ -171,8 +171,8 @@ impl ChatSession {
         #[cfg(windows)]
         let mut cmd = {
             // Windows: 直接调用 Node.js，绕过 cmd.exe
-            let (_node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
-            build_node_command(&cli_js, message)
+            let (node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+            build_node_command(&node_exe, &cli_js, message)
         };
 
         #[cfg(not(windows))]
@@ -227,22 +227,28 @@ impl ChatSession {
     {
         eprintln!("[ChatSession::read_events] 开始读取输出");
 
-        let stdout = self.child.stdout
-            .ok_or_else(|| AppError::ProcessError("无法获取 stdout".to_string()));
+        let stdout = match self.child.stdout {
+            Some(stdout) => stdout,
+            None => {
+                eprintln!("[ChatSession::read_events] 无法获取 stdout");
+                // 发送错误事件到前端
+                callback(StreamEvent::Error {
+                    error: "无法获取进程输出流".to_string(),
+                });
+                return;
+            }
+        };
 
-        if stdout.is_err() {
-            return;
-        }
-
-        let stderr = self.child.stderr
-            .ok_or_else(|| AppError::ProcessError("无法获取 stderr".to_string()));
-
-        if stderr.is_err() {
-            return;
-        }
-
-        let stdout = stdout.unwrap();
-        let stderr = stderr.unwrap();
+        let stderr = match self.child.stderr {
+            Some(stderr) => stderr,
+            None => {
+                eprintln!("[ChatSession::read_events] 无法获取 stderr");
+                callback(StreamEvent::Error {
+                    error: "无法获取进程错误流".to_string(),
+                });
+                return;
+            }
+        };
 
         // 启动单独的线程读取 stderr
         std::thread::spawn(move || {
@@ -259,6 +265,7 @@ impl ChatSession {
 
         let reader = BufReader::new(stdout);
         let mut line_count = 0;
+        let mut received_session_end = false;
 
         for line in reader.lines() {
             let line = match line {
@@ -281,6 +288,12 @@ impl ChatSession {
             // 使用 StreamEvent::parse_line 解析
             if let Some(event) = StreamEvent::parse_line(line_trimmed) {
                 eprintln!("[ChatSession::read_events] 解析成功事件: {:?}", std::mem::discriminant(&event));
+
+                // 检查是否收到 session_end 事件
+                if matches!(event, StreamEvent::SessionEnd) {
+                    received_session_end = true;
+                }
+
                 callback(event);
             } else {
                 eprintln!("[ChatSession::read_events] 解析失败，原始内容: {}", line_trimmed.chars().take(200).collect::<String>());
@@ -289,10 +302,12 @@ impl ChatSession {
 
         eprintln!("[ChatSession::read_events] 读取结束，共处理 {} 行", line_count);
 
-        // 【关键修复】进程退出时自动发送 session_end 事件
-        // 这样即使进程异常退出，前端也能收到通知并重置 isStreaming 状态
-        eprintln!("[ChatSession::read_events] 发送 session_end 事件");
-        callback(StreamEvent::SessionEnd);
+        // 【关键修复】只有在进程没有正常发送 session_end 事件时才自动发送
+        // 这样避免重复发送，同时确保异常退出时前端能收到通知
+        if !received_session_end {
+            eprintln!("[ChatSession::read_events] 进程异常退出，发送 session_end 事件");
+            callback(StreamEvent::SessionEnd);
+        }
     }
 }
 
@@ -425,8 +440,8 @@ pub async fn continue_chat(
     #[cfg(windows)]
     let mut cmd = {
         // Windows: 直接调用 Node.js
-        let (_node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
-        build_node_command_resume(&cli_js, &session_id, &message)
+        let (node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+        build_node_command_resume(&node_exe, &cli_js, &session_id, &message)
     };
 
     #[cfg(not(windows))]
