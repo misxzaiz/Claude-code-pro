@@ -93,44 +93,35 @@ export function ChatInput({
     const cursorPosition = textarea.selectionStart;
     const textBeforeCursor = newValue.slice(0, cursorPosition);
 
-    // 检测命令触发 (/)
-    const commandMatch = textBeforeCursor.match(/\/([^\s]*)$/);
-    if (commandMatch) {
-      setCommandQuery(commandMatch[1]);
-      setSelectedCommandIndex(0);
-      setShowCommandSuggestions(true);
-      setShowWorkspaceSuggestions(false);
-      setShowFileSuggestions(false);
+    // 优先检测 @ 符号相关触发（工作区引用和文件引用）
+    // 这样可以避免 @workspace/ 中的 / 被误识别为命令触发符
 
-      const rect = textarea.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
-      setCommandPosition({
-        top: rect.bottom - containerRect.top + 4,
-        left: rect.left - containerRect.left,
-      });
-      return;
-    }
-
-    // 检测工作区引用触发 (@workspace: 或 @workspace/)
-    const workspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]+)[:/]?([^\s]*)$/);
+    // 1. 检测跨工作区引用 (@workspace: 或 @workspace/)
+    // 使用冒号或斜杠作为工作区名和路径的分隔符
+    // 正则说明：
+    //   - @([\w\u4e00-\u9fa5-]+) 捕获工作区名
+    //   - ([:/])? 捕获分隔符（可选，用于判断用户是否确认了工作区）
+    //   - ([^\s]*) 捕获路径部分
+    const workspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]+)([:/])?([^\s]*)$/);
     if (workspaceMatch) {
       const workspaceName = workspaceMatch[1];
-      const pathPart = workspaceMatch[2];
+      const separator = workspaceMatch[2];  // ':' 或 '/'，如果未输入分隔符则为 undefined
+      const pathPart = workspaceMatch[3] || '';
 
       // 查找工作区
       const matchedWorkspace = workspaces.find(w =>
         w.name.toLowerCase() === workspaceName.toLowerCase()
       );
 
-      if (matchedWorkspace && (pathPart === '' || pathPart === '/')) {
-        // 已找到工作区，切换到文件搜索模式
+      // 如果输入了分隔符（: 或 /）且找到了工作区，切换到文件搜索模式
+      if (matchedWorkspace && separator) {
         setShowWorkspaceSuggestions(false);
         setShowFileSuggestions(true);
         setShowCommandSuggestions(false);
         setFileWorkspace(matchedWorkspace);
         setSelectedFileIndex(0);
         // 搜索该工作区的文件
-        searchFiles(pathPart || '', matchedWorkspace);
+        searchFiles(pathPart, matchedWorkspace);
 
         const rect = textarea.getBoundingClientRect();
         const containerRect = containerRef.current.getBoundingClientRect();
@@ -141,7 +132,8 @@ export function ChatInput({
         return;
       }
 
-      // 未找到工作区或未完成输入，显示工作区列表
+      // 未找到工作区，或未输入分隔符（用户还在输入工作区名）
+      // 显示工作区列表供用户选择
       setShowWorkspaceSuggestions(true);
       setShowFileSuggestions(false);
       setShowCommandSuggestions(false);
@@ -157,7 +149,7 @@ export function ChatInput({
       return;
     }
 
-    // 检测当前工作区文件引用 (@/path 或 @path)
+    // 2. 检测当前工作区文件引用 (@/path 或 @path)
     const fileMatch = textBeforeCursor.match(/@\/?(.*)$/);
     if (fileMatch) {
       setShowWorkspaceSuggestions(false);
@@ -170,6 +162,25 @@ export function ChatInput({
       const rect = textarea.getBoundingClientRect();
       const containerRect = containerRef.current.getBoundingClientRect();
       setFilePosition({
+        top: rect.bottom - containerRect.top + 4,
+        left: rect.left - containerRect.left,
+      });
+      return;
+    }
+
+    // 3. 检测命令触发 (/)
+    // 只有在非 @ 上下文中才触发命令建议
+    const commandMatch = textBeforeCursor.match(/\/([^\s]*)$/);
+    if (commandMatch) {
+      setCommandQuery(commandMatch[1]);
+      setSelectedCommandIndex(0);
+      setShowCommandSuggestions(true);
+      setShowWorkspaceSuggestions(false);
+      setShowFileSuggestions(false);
+
+      const rect = textarea.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      setCommandPosition({
         top: rect.bottom - containerRect.top + 4,
         left: rect.left - containerRect.left,
       });
