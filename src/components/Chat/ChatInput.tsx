@@ -123,10 +123,12 @@ export function ChatInput({
         searchFiles(pathPart, matchedWorkspace);
 
         const rect = textarea.getBoundingClientRect();
-        const containerRect = containerRef.current.getBoundingClientRect();
+        // fixed 定位直接使用相对于视口的位置
+        // 列表底部在输入框顶部上方，留 8px 间隙
+        // max-h-60 = 240px，加上一些缓冲空间
         setFilePosition({
-          top: rect.bottom - containerRect.top + 4,
-          left: rect.left - containerRect.left,
+          top: rect.top - 260 - 8,
+          left: rect.left,
         });
         return;
       }
@@ -139,10 +141,11 @@ export function ChatInput({
       setSelectedWorkspaceIndex(0);
 
       const rect = textarea.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
+      // fixed 定位直接使用相对于视口的位置
+      // 列表底部在输入框顶部上方，留 8px 间隙
       setWorkspacePosition({
-        top: rect.bottom - containerRect.top + 4,
-        left: rect.left - containerRect.left,
+        top: rect.top - 260 - 8,
+        left: rect.left,
       });
       return;
     }
@@ -161,10 +164,11 @@ export function ChatInput({
         setSelectedWorkspaceIndex(0);
 
         const rect = textarea.getBoundingClientRect();
-        const containerRect = containerRef.current.getBoundingClientRect();
+        // fixed 定位直接使用相对于视口的位置
+        // 列表底部在输入框顶部上方，留 8px 间隙
         setWorkspacePosition({
-          top: rect.bottom - containerRect.top + 4,
-          left: rect.left - containerRect.left,
+          top: rect.top - 260 - 8,
+          left: rect.left,
         });
         return;
       }
@@ -181,10 +185,11 @@ export function ChatInput({
       searchFiles(fileMatch[1]);
 
       const rect = textarea.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
+      // fixed 定位直接使用相对于视口的位置
+      // 列表底部在输入框顶部上方，留 8px 间隙
       setFilePosition({
-        top: rect.bottom - containerRect.top + 4,
-        left: rect.left - containerRect.left,
+        top: rect.top - 260 - 8,
+        left: rect.left,
       });
       return;
     }
@@ -200,10 +205,11 @@ export function ChatInput({
       setShowFileSuggestions(false);
 
       const rect = textarea.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
+      // fixed 定位直接使用相对于视口的位置
+      // 列表底部在输入框顶部上方，留 8px 间隙
       setCommandPosition({
-        top: rect.bottom - containerRect.top + 4,
-        left: rect.left - containerRect.left,
+        top: rect.top - 260 - 8,
+        left: rect.left,
       });
       return;
     }
