@@ -1,15 +1,21 @@
 /**
- * 聊天输入组件 - 支持斜杠命令和文件引用
- * 优化版本: 拆分了自适应文本框、提取了自定义Hook、添加了useMemo缓存
+ * 聊天输入组件 - 支持斜杠命令、工作区引用和文件引用
+ *
+ * 支持的语法：
+ * - /command          斜杠命令
+ * - @workspace/path  引用指定工作区的文件
+ * - @/path           引用当前工作区的文件
+ * - @path            引用当前工作区的文件
  */
 
 import { useState, useRef, KeyboardEvent, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '../Common';
 import { IconSend, IconStop } from '../Common/Icons';
-import { useCommandStore } from '../../stores';
+import { useCommandStore, useWorkspaceStore } from '../../stores';
 import { parseCommandInput, generateCommandsListMessage, generateHelpMessage } from '../../services/commandService';
-import { FileSuggestion, CommandSuggestion } from './FileSuggestion';
+import { FileSuggestion, CommandSuggestion, WorkspaceSuggestion } from './FileSuggestion';
 import type { FileMatch } from '../../services/fileSearch';
+import type { Workspace } from '../../types';
 import { AutoResizingTextarea } from './AutoResizingTextarea';
 import { useFileSearch } from '../../hooks/useFileSearch';
 
@@ -19,6 +25,8 @@ interface ChatInputProps {
   isStreaming?: boolean;
   onInterrupt?: () => void;
 }
+
+type SuggestionMode = 'command' | 'workspace' | 'file' | null;
 
 export function ChatInput({
   onSend,
@@ -36,12 +44,20 @@ export function ChatInput({
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [commandPosition, setCommandPosition] = useState({ top: 0, left: 0 });
 
+  // 工作区建议状态
+  const [showWorkspaceSuggestions, setShowWorkspaceSuggestions] = useState(false);
+  const [selectedWorkspaceIndex, setSelectedWorkspaceIndex] = useState(0);
+  const [workspaceQuery, setWorkspaceQuery] = useState('');
+  const [workspacePosition, setWorkspacePosition] = useState({ top: 0, left: 0 });
+
   // 文件建议状态
   const [showFileSuggestions, setShowFileSuggestions] = useState(false);
   const [selectedFileIndex, setSelectedFileIndex] = useState(0);
   const [filePosition, setFilePosition] = useState({ top: 0, left: 0 });
+  const [fileWorkspace, setFileWorkspace] = useState<Workspace | null>(null);  // 当前搜索的工作区
 
   const { getCommands, searchCommands } = useCommandStore();
+  const { currentWorkspaceId, workspaces } = useWorkspaceStore();
   const { fileMatches, searchFiles, clearResults } = useFileSearch();
 
   // 缓存命令搜索结果
@@ -50,7 +66,21 @@ export function ChatInput({
     [commandQuery, searchCommands]
   );
 
-  // 自动调整高度已移至 AutoResizingTextarea 组件
+  // 过滤工作区列表
+  const filteredWorkspaces = useMemo(
+    () => workspaces.filter(w =>
+      w.name.toLowerCase().includes(workspaceQuery.toLowerCase())
+    ),
+    [workspaces, workspaceQuery]
+  );
+
+  // 当前建议模式
+  const suggestionMode: SuggestionMode = useMemo(() => {
+    if (showCommandSuggestions) return 'command';
+    if (showWorkspaceSuggestions) return 'workspace';
+    if (showFileSuggestions) return 'file';
+    return null;
+  }, [showCommandSuggestions, showWorkspaceSuggestions, showFileSuggestions]);
 
   // 检测触发符
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -65,13 +95,13 @@ export function ChatInput({
 
     // 检测命令触发 (/)
     const commandMatch = textBeforeCursor.match(/\/([^\s]*)$/);
-    if (commandMatch && !textBeforeCursor.includes('@')) {
+    if (commandMatch) {
       setCommandQuery(commandMatch[1]);
       setSelectedCommandIndex(0);
       setShowCommandSuggestions(true);
+      setShowWorkspaceSuggestions(false);
       setShowFileSuggestions(false);
 
-      // 计算位置
       const rect = textarea.getBoundingClientRect();
       const containerRect = containerRef.current.getBoundingClientRect();
       setCommandPosition({
@@ -81,15 +111,62 @@ export function ChatInput({
       return;
     }
 
-    // 检测文件引用触发 (@)
-    const fileMatch = textBeforeCursor.match(/@([^\s]*)$/);
+    // 检测工作区引用触发 (@workspace: 或 @workspace/)
+    const workspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]+)[:/]?([^\s]*)$/);
+    if (workspaceMatch) {
+      const workspaceName = workspaceMatch[1];
+      const pathPart = workspaceMatch[2];
+
+      // 查找工作区
+      const matchedWorkspace = workspaces.find(w =>
+        w.name.toLowerCase() === workspaceName.toLowerCase()
+      );
+
+      if (matchedWorkspace && (pathPart === '' || pathPart === '/')) {
+        // 已找到工作区，切换到文件搜索模式
+        setShowWorkspaceSuggestions(false);
+        setShowFileSuggestions(true);
+        setShowCommandSuggestions(false);
+        setFileWorkspace(matchedWorkspace);
+        setSelectedFileIndex(0);
+        // 搜索该工作区的文件
+        searchFiles(pathPart || '', matchedWorkspace);
+
+        const rect = textarea.getBoundingClientRect();
+        const containerRect = containerRef.current.getBoundingClientRect();
+        setFilePosition({
+          top: rect.bottom - containerRect.top + 4,
+          left: rect.left - containerRect.left,
+        });
+        return;
+      }
+
+      // 未找到工作区或未完成输入，显示工作区列表
+      setShowWorkspaceSuggestions(true);
+      setShowFileSuggestions(false);
+      setShowCommandSuggestions(false);
+      setWorkspaceQuery(workspaceName);
+      setSelectedWorkspaceIndex(0);
+
+      const rect = textarea.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      setWorkspacePosition({
+        top: rect.bottom - containerRect.top + 4,
+        left: rect.left - containerRect.left,
+      });
+      return;
+    }
+
+    // 检测当前工作区文件引用 (@/path 或 @path)
+    const fileMatch = textBeforeCursor.match(/@\/?(.*)$/);
     if (fileMatch) {
-      setSelectedFileIndex(0);
+      setShowWorkspaceSuggestions(false);
       setShowFileSuggestions(true);
       setShowCommandSuggestions(false);
+      setFileWorkspace(null);  // null 表示当前工作区
+      setSelectedFileIndex(0);
       searchFiles(fileMatch[1]);
 
-      // 计算位置
       const rect = textarea.getBoundingClientRect();
       const containerRect = containerRef.current.getBoundingClientRect();
       setFilePosition({
@@ -101,9 +178,10 @@ export function ChatInput({
 
     // 隐藏所有建议
     setShowCommandSuggestions(false);
+    setShowWorkspaceSuggestions(false);
     setShowFileSuggestions(false);
     clearResults();
-  }, [searchFiles, clearResults]);
+  }, [workspaces, searchFiles, clearResults]);
 
   // 选择命令
   const selectCommand = useCallback((name: string) => {
@@ -114,15 +192,39 @@ export function ChatInput({
     const textBeforeCursor = value.slice(0, cursorPosition);
     const textAfterCursor = value.slice(cursorPosition);
 
-    // 替换命令部分
     const newText = textBeforeCursor.replace(/\/[^\s]*$/, `/${name} `) + textAfterCursor;
     setValue(newText);
     setShowCommandSuggestions(false);
 
-    // 恢复焦点
     setTimeout(() => {
       textarea.focus();
       textarea.setSelectionRange(newText.length - textAfterCursor.length, newText.length - textAfterCursor.length);
+    }, 0);
+  }, [value]);
+
+  // 选择工作区
+  const selectWorkspace = useCallback((workspace: Workspace) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const cursorPosition = textarea.selectionStart;
+    const textBeforeCursor = value.slice(0, cursorPosition);
+    const textAfterCursor = value.slice(cursorPosition);
+
+    // 替换 @workspace 为 @workspace:
+    const newText = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]*$/, `@${workspace.name}/`) + textAfterCursor;
+    setValue(newText);
+    setShowWorkspaceSuggestions(false);
+
+    // 自动触发文件搜索
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = newText.length - textAfterCursor.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+
+      // 触发文件搜索
+      const inputEvent = new Event('input', { bubbles: true });
+      textarea.dispatchEvent(inputEvent);
     }, 0);
   }, [value]);
 
@@ -135,17 +237,25 @@ export function ChatInput({
     const textBeforeCursor = value.slice(0, cursorPosition);
     const textAfterCursor = value.slice(cursorPosition);
 
-    // 替换文件引用部分 - 使用相对路径
-    const newText = textBeforeCursor.replace(/@[^\s]*$/, `@${file.relativePath} `) + textAfterCursor;
+    // 根据是否有工作区前缀决定替换模式
+    let replacement: string;
+    if (fileWorkspace) {
+      // @workspace/path 模式
+      replacement = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]+:[^\s]*$/, `@${fileWorkspace.name}/${file.relativePath} `);
+    } else {
+      // @/path 或 @path 模式
+      replacement = textBeforeCursor.replace(/@[^\s]*$/, `@${file.relativePath} `);
+    }
+
+    const newText = replacement + textAfterCursor;
     setValue(newText);
     setShowFileSuggestions(false);
 
-    // 恢复焦点
     setTimeout(() => {
       textarea.focus();
       textarea.setSelectionRange(newText.length - textAfterCursor.length, newText.length - textAfterCursor.length);
     }, 0);
-  }, [value]);
+  }, [value, fileWorkspace]);
 
   // 键盘事件处理
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -155,6 +265,14 @@ export function ChatInput({
         e.preventDefault();
         if (suggestedCommands.length > 0) {
           selectCommand(suggestedCommands[selectedCommandIndex].name);
+        }
+        return;
+      }
+
+      if (showWorkspaceSuggestions) {
+        e.preventDefault();
+        if (filteredWorkspaces.length > 0) {
+          selectWorkspace(filteredWorkspaces[selectedWorkspaceIndex]);
         }
         return;
       }
@@ -174,16 +292,29 @@ export function ChatInput({
     }
 
     // 上下箭头选择建议
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && (showCommandSuggestions || showFileSuggestions)) {
+    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        (showCommandSuggestions || showWorkspaceSuggestions || showFileSuggestions)) {
       e.preventDefault();
 
-      const items = showCommandSuggestions ? suggestedCommands : fileMatches;
+      let items: any[] = [];
+      let setState: (fn: (prev: number) => number) => void;
+
+      if (showCommandSuggestions) {
+        items = suggestedCommands;
+        setState = setSelectedCommandIndex;
+      } else if (showWorkspaceSuggestions) {
+        items = filteredWorkspaces;
+        setState = setSelectedWorkspaceIndex;
+      } else {
+        items = fileMatches;
+        setState = setSelectedFileIndex;
+      }
+
       if (items.length === 0) return;
 
       const maxIndex = items.length - 1;
       const direction = e.key === 'ArrowUp' ? -1 : 1;
 
-      const setState = showCommandSuggestions ? setSelectedCommandIndex : setSelectedFileIndex;
       setState(prev => {
         const newIndex = prev + direction;
         if (newIndex < 0) return maxIndex;
@@ -196,6 +327,7 @@ export function ChatInput({
     // ESC 关闭建议
     if (e.key === 'Escape') {
       setShowCommandSuggestions(false);
+      setShowWorkspaceSuggestions(false);
       setShowFileSuggestions(false);
       clearResults();
       return;
@@ -211,6 +343,14 @@ export function ChatInput({
         return;
       }
 
+      if (showWorkspaceSuggestions) {
+        e.preventDefault();
+        if (filteredWorkspaces.length > 0) {
+          selectWorkspace(filteredWorkspaces[selectedWorkspaceIndex]);
+        }
+        return;
+      }
+
       if (showFileSuggestions) {
         e.preventDefault();
         if (fileMatches.length > 0) {
@@ -221,12 +361,16 @@ export function ChatInput({
     }
   }, [
     showCommandSuggestions,
+    showWorkspaceSuggestions,
     showFileSuggestions,
     suggestedCommands,
+    filteredWorkspaces,
     fileMatches,
     selectedCommandIndex,
+    selectedWorkspaceIndex,
     selectedFileIndex,
     selectCommand,
+    selectWorkspace,
     selectFile,
     clearResults
   ]);
@@ -269,6 +413,7 @@ export function ChatInput({
   const resetInput = useCallback(() => {
     setValue('');
     setShowCommandSuggestions(false);
+    setShowWorkspaceSuggestions(false);
     setShowFileSuggestions(false);
     clearResults();
   }, [clearResults]);
@@ -277,6 +422,7 @@ export function ChatInput({
   useEffect(() => {
     const handleClickOutside = () => {
       setShowCommandSuggestions(false);
+      setShowWorkspaceSuggestions(false);
       setShowFileSuggestions(false);
     };
 
@@ -293,7 +439,7 @@ export function ChatInput({
             value={value}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder="输入消息... (Enter 发送, Shift+Enter 换行, /命令, @文件)"
+            placeholder="输入消息... (Enter 发送, Shift+Enter 换行, /命令, @工作区/文件)"
             className="flex-1 px-2 py-1.5 bg-transparent text-text-primary placeholder:text-text-tertiary resize-none outline-none text-sm leading-relaxed"
             disabled={disabled}
             maxHeight={200}
@@ -331,8 +477,12 @@ export function ChatInput({
                 <span className="w-1.5 h-1.5 bg-warning rounded-full animate-pulse" />
                 正在生成回复...
               </span>
+            ) : suggestionMode === 'workspace' ? (
+              <span>选择工作区，然后输入文件路径</span>
+            ) : suggestionMode === 'file' ? (
+              <span>选择文件</span>
             ) : (
-              <span>按 Enter 发送，Shift+Enter 换行，/ 命令，@ 文件</span>
+              <span>按 Enter 发送，Shift+Enter 换行，/ 命令，@ 工作区/文件</span>
             )}
           </div>
           <div className="text-xs text-text-tertiary">
@@ -348,6 +498,18 @@ export function ChatInput({
             onSelect={(cmd) => selectCommand(cmd.name)}
             onHover={setSelectedCommandIndex}
             position={commandPosition}
+          />
+        )}
+
+        {/* 工作区建议 */}
+        {showWorkspaceSuggestions && filteredWorkspaces.length > 0 && (
+          <WorkspaceSuggestion
+            workspaces={filteredWorkspaces}
+            currentWorkspaceId={currentWorkspaceId}
+            selectedIndex={selectedWorkspaceIndex}
+            onSelect={selectWorkspace}
+            onHover={setSelectedWorkspaceIndex}
+            position={workspacePosition}
           />
         )}
 
