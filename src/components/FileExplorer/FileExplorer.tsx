@@ -27,27 +27,29 @@ export function FileExplorer() {
   const { loadCustomCommands } = useCommandStore();
 
   // 监听工作区变化，自动加载新工作区
+  // 只有当用户正在查看的是被切换掉的工作区时，才自动切换
   useEffect(() => {
     const handleWorkspaceChange = (event: CustomEvent) => {
-      const { workspaceId } = event.detail;
-      console.log('Workspace changed:', workspaceId);
-      // 获取当前工作区信息并加载
-      const currentWorkspace = getCurrentWorkspace();
+      const { workspaceId: newWorkspaceId } = event.detail;
+      const viewingWorkspace = getViewingWorkspace();
 
-      if (currentWorkspace) {
-        console.log('Loading workspace:', currentWorkspace.path);
-        load_directory(currentWorkspace.path);
-        // 加载自定义命令
-        loadCustomCommands(currentWorkspace.path);
+      // 如果用户正在查看的是旧的活动工作区，则切换到新的活动工作区
+      // 如果用户正在查看某个上下文工作区，则保持不变
+      if (!viewingWorkspace || viewingWorkspace.id === newWorkspaceId) {
+        const currentWorkspace = getCurrentWorkspace();
+        if (currentWorkspace) {
+          load_directory(currentWorkspace.path);
+          loadCustomCommands(currentWorkspace.path);
+        }
       }
     };
 
     window.addEventListener('workspace-changed', handleWorkspaceChange as EventListener);
-    
+
     return () => {
       window.removeEventListener('workspace-changed', handleWorkspaceChange as EventListener);
     };
-  }, [load_directory, getCurrentWorkspace]);
+  }, [load_directory, getCurrentWorkspace, getViewingWorkspace, loadCustomCommands]);
 
   // 快捷键支持
   useEffect(() => {
@@ -67,15 +69,16 @@ export function FileExplorer() {
   }, [refresh_directory]);
 
   // 初始化加载工作区目录
+  // 优先使用 viewingWorkspace，如果没有则使用当前活动工作区
   useEffect(() => {
-    const currentWorkspace = getCurrentWorkspace();
+    const viewingWorkspace = getViewingWorkspace();
+    const targetWorkspace = viewingWorkspace || getCurrentWorkspace();
 
-    if (currentWorkspace && current_path !== currentWorkspace.path) {
-      console.log('Initial loading workspace:', currentWorkspace.path);
-      load_directory(currentWorkspace.path);
-      loadCustomCommands(currentWorkspace.path);
+    if (targetWorkspace && current_path !== targetWorkspace.path) {
+      load_directory(targetWorkspace.path);
+      loadCustomCommands(targetWorkspace.path);
     }
-  }, [load_directory, current_path, getCurrentWorkspace, loadCustomCommands]);
+  }, [load_directory, current_path, getCurrentWorkspace, getViewingWorkspace, loadCustomCommands]);
 
   const handleRefresh = useCallback(() => {
     clear_error();
@@ -101,27 +104,6 @@ export function FileExplorer() {
       loadCustomCommands(targetWorkspace.path);
     }
   }, [setViewingWorkspace, workspaces, getCurrentWorkspace, load_directory, loadCustomCommands]);
-
-  // 监听查看工作区变化事件
-  useEffect(() => {
-    const handleViewingWorkspaceChange = (event: CustomEvent) => {
-      const { workspaceId } = event.detail;
-      const targetWorkspace = workspaceId
-        ? workspaces.find(w => w.id === workspaceId)
-        : getCurrentWorkspace();
-
-      if (targetWorkspace) {
-        load_directory(targetWorkspace.path);
-        loadCustomCommands(targetWorkspace.path);
-      }
-    };
-
-    window.addEventListener('viewing-workspace-changed', handleViewingWorkspaceChange as EventListener);
-
-    return () => {
-      window.removeEventListener('viewing-workspace-changed', handleViewingWorkspaceChange as EventListener);
-    };
-  }, [workspaces, getCurrentWorkspace, load_directory, loadCustomCommands]);
 
   const currentWorkspace = getCurrentWorkspace();
 
