@@ -1,9 +1,9 @@
 /**
- * 工作区引用服务 - 处理 @workspace:path 和 @path 语法
+ * 工作区引用服务 - 处理 @workspace:path 语法
  *
  * 语法说明：
- * - @workspace:path  → 引用指定工作区的文件（如 @utils/src/Button.tsx）
- * - @/path 或 @path    → 引用当前工作区的文件（如 @/src/App.tsx）
+ * - @workspace:path  → 引用指定工作区的文件（如 @utils:src/Button.tsx）
+ * - @/path            → 引用当前工作区的文件（如 @/src/App.tsx）
  *
  * 参考 Cline 的 workspace:path 语法
  */
@@ -11,14 +11,13 @@
 import type { Workspace, WorkspaceReference, ParsedWorkspaceMessage } from '../types';
 
 /**
- * 匹配 @workspace:path 或 @workspace/path 格式
+ * 匹配 @workspace:path 格式
  * 支持中文、数字、字母、下划线、连字符
  *
- * 分组1: workspace-name（可选，如果为空或 / 开头则表示当前工作区）
- * 分组2: 分隔符（: 或 /）
- * 分组3: 相对路径
+ * 分组1: workspace-name（可选，如果未指定则使用当前工作区）
+ * 分组2: 相对路径
  */
-const WORKSPACE_REF_PATTERN = /@(?:([\w\u4e00-\u9fa5-]+)?[:/])?([^\s]+)/g;
+const WORKSPACE_REF_PATTERN = /@(?:([\w\u4e00-\u9fa5-]+):)?([^\s]+)/g;
 
 /**
  * 解析消息中的工作区引用
@@ -151,7 +150,7 @@ function generateContextHeader(
   header += `当前工作区: ${currentWorkspace?.name || '未设置'}\n`;
   if (currentWorkspace) {
     header += `  路径: ${currentWorkspace.path}\n`;
-    header += `  引用语法: @/path 或 @path\n`;
+    header += `  引用语法: @/path\n`;
   }
 
   if (contextWorkspaces.length > 0) {
@@ -159,7 +158,7 @@ function generateContextHeader(
     contextWorkspaces.forEach(w => {
       header += `  • ${w.name}\n`;
       header += `    路径: ${w.path}\n`;
-      header += `    引用语法: @${w.name}/path\n`;
+      header += `    引用语法: @${w.name}:path\n`;
     });
   }
 
@@ -188,5 +187,5 @@ export function getWorkspaceByName(name: string, workspaces: Workspace[]): Works
  * 验证工作区引用格式
  */
 export function isValidWorkspaceReference(text: string): boolean {
-  return /^@[\w\u4e00-\u9fa5-]*[:/]/.test(text);
+  return /^@[\w\u4e00-\u9fa5-]+:/.test(text);
 }

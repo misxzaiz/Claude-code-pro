@@ -94,27 +94,26 @@ export function ChatInput({
     const textBeforeCursor = newValue.slice(0, cursorPosition);
 
     // 优先检测 @ 符号相关触发（工作区引用和文件引用）
-    // 这样可以避免 @workspace/ 中的 / 被误识别为命令触发符
+    // 统一使用 : 作为工作区分隔符，/ 只用于命令触发
 
-    // 1. 检测跨工作区引用 (@workspace: 或 @workspace/)
-    // 使用冒号或斜杠作为工作区名和路径的分隔符
+    // 1. 检测跨工作区引用 (@workspace:path)
+    // 使用冒号作为工作区名和路径的分隔符
     // 正则说明：
     //   - @([\w\u4e00-\u9fa5-]+) 捕获工作区名
-    //   - ([:/])? 捕获分隔符（可选，用于判断用户是否确认了工作区）
+    //   - (:) 捕获分隔符（冒号，确认用户输入了完整的工作区引用语法）
     //   - ([^\s]*) 捕获路径部分
-    const workspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]+)([:/])?([^\s]*)$/);
+    const workspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]+):([^\s]*)$/);
     if (workspaceMatch) {
       const workspaceName = workspaceMatch[1];
-      const separator = workspaceMatch[2];  // ':' 或 '/'，如果未输入分隔符则为 undefined
-      const pathPart = workspaceMatch[3] || '';
+      const pathPart = workspaceMatch[2] || '';
 
       // 查找工作区
       const matchedWorkspace = workspaces.find(w =>
         w.name.toLowerCase() === workspaceName.toLowerCase()
       );
 
-      // 如果输入了分隔符（: 或 /）且找到了工作区，切换到文件搜索模式
-      if (matchedWorkspace && separator) {
+      // 如果找到了工作区，切换到文件搜索模式
+      if (matchedWorkspace) {
         setShowWorkspaceSuggestions(false);
         setShowFileSuggestions(true);
         setShowCommandSuggestions(false);
@@ -132,8 +131,7 @@ export function ChatInput({
         return;
       }
 
-      // 未找到工作区，或未输入分隔符（用户还在输入工作区名）
-      // 显示工作区列表供用户选择
+      // 未找到工作区，显示工作区列表供用户选择
       setShowWorkspaceSuggestions(true);
       setShowFileSuggestions(false);
       setShowCommandSuggestions(false);
@@ -149,8 +147,31 @@ export function ChatInput({
       return;
     }
 
-    // 2. 检测当前工作区文件引用 (@/path 或 @path)
-    const fileMatch = textBeforeCursor.match(/@\/?(.*)$/);
+    // 检测用户正在输入工作区名（@workspace 还没有冒号）
+    const partialWorkspaceMatch = textBeforeCursor.match(/@([\w\u4e00-\u9fa5-]*)$/);
+    if (partialWorkspaceMatch) {
+      const workspaceName = partialWorkspaceMatch[1];
+
+      // 如果有输入内容，显示工作区列表
+      if (workspaceName.length > 0) {
+        setShowWorkspaceSuggestions(true);
+        setShowFileSuggestions(false);
+        setShowCommandSuggestions(false);
+        setWorkspaceQuery(workspaceName);
+        setSelectedWorkspaceIndex(0);
+
+        const rect = textarea.getBoundingClientRect();
+        const containerRect = containerRef.current.getBoundingClientRect();
+        setWorkspacePosition({
+          top: rect.bottom - containerRect.top + 4,
+          left: rect.left - containerRect.left,
+        });
+        return;
+      }
+    }
+
+    // 2. 检测当前工作区文件引用 (@/path)
+    const fileMatch = textBeforeCursor.match(/@\/(.*)$/);
     if (fileMatch) {
       setShowWorkspaceSuggestions(false);
       setShowFileSuggestions(true);
@@ -223,7 +244,7 @@ export function ChatInput({
     const textAfterCursor = value.slice(cursorPosition);
 
     // 替换 @workspace 为 @workspace:
-    const newText = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]*$/, `@${workspace.name}/`) + textAfterCursor;
+    const newText = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]*$/, `@${workspace.name}:`) + textAfterCursor;
     setValue(newText);
     setShowWorkspaceSuggestions(false);
 
@@ -251,11 +272,11 @@ export function ChatInput({
     // 根据是否有工作区前缀决定替换模式
     let replacement: string;
     if (fileWorkspace) {
-      // @workspace/path 模式
-      replacement = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]+:[^\s]*$/, `@${fileWorkspace.name}/${file.relativePath} `);
+      // @workspace:path 模式（跨工作区引用）
+      replacement = textBeforeCursor.replace(/@[\w\u4e00-\u9fa5-]+:[^\s]*$/, `@${fileWorkspace.name}:${file.relativePath} `);
     } else {
-      // @/path 或 @path 模式
-      replacement = textBeforeCursor.replace(/@[^\s]*$/, `@${file.relativePath} `);
+      // @/path 模式（当前工作区）
+      replacement = textBeforeCursor.replace(/@\/[^\s]*$/, `@/${file.relativePath} `);
     }
 
     const newText = replacement + textAfterCursor;
