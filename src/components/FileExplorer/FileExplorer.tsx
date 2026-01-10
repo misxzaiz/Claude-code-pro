@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from 'react';
+import { useEffect, useCallback, useState, useMemo } from 'react';
 import { useFileExplorerStore, useWorkspaceStore, useCommandStore } from '../../stores';
 import { FileTree } from './FileTree';
 import { SearchBar } from './SearchBar';
@@ -85,9 +85,9 @@ export function FileExplorer() {
     refresh_directory();
   }, [clear_error, refresh_directory]);
 
-  // 获取当前正在查看的工作区
-  const viewingWorkspace = getViewingWorkspace();
-  const accessibleWorkspaces = getAllAccessibleWorkspaces();
+  // 获取当前正在查看的工作区（使用 useMemo 缓存）
+  const viewingWorkspace = useMemo(() => getViewingWorkspace(), [getViewingWorkspace]);
+  const accessibleWorkspaces = useMemo(() => getAllAccessibleWorkspaces(), [getAllAccessibleWorkspaces]);
 
   // 切换查看工作区
   const handleSwitchViewingWorkspace = useCallback(async (workspaceId: string | null) => {

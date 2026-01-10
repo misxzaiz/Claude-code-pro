@@ -223,10 +223,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       // 设置 FileExplorer 当前查看的工作区
       setViewingWorkspace: (id: string | null) => {
         set({ viewingWorkspaceId: id });
-        // 触发事件通知 FileExplorer 刷新
-        window.dispatchEvent(new CustomEvent('viewing-workspace-changed', {
-          detail: { workspaceId: id }
-        }));
       },
 
       // 获取 FileExplorer 当前查看的工作区

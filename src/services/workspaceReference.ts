@@ -6,8 +6,9 @@ import type { Workspace, WorkspaceReference, ParsedWorkspaceMessage } from '../t
 
 /**
  * 匹配 @workspace-name/path 或 @workspace-name:path 格式
+ * 支持中文、数字、字母、下划线、连字符
  */
-const WORKSPACE_REF_PATTERN = /@(\w+)[:/]([^\s]+)/g;
+const WORKSPACE_REF_PATTERN = /@([\w\u4e00-\u9fa5-]+)[:/]([^\s]+)/g;
 
 /**
  * 解析消息中的工作区引用
@@ -24,6 +25,12 @@ export function parseWorkspaceReferences(
 ): ParsedWorkspaceMessage {
   const references: WorkspaceReference[] = [];
   let processed = message;
+
+  // 预构建名称索引，O(1) 查找
+  const workspaceByName = new Map<string, Workspace>();
+  for (const w of workspaces) {
+    workspaceByName.set(w.name.toLowerCase(), w);
+  }
 
   // 存储匹配结果和位置，避免正则 lastIndex 问题
   const matches: Array<{
@@ -50,10 +57,8 @@ export function parseWorkspaceReferences(
   for (let i = matches.length - 1; i >= 0; i--) {
     const { fullMatch, workspaceName, relativePath, startIndex, endIndex } = matches[i];
 
-    // 查找工作区（忽略大小写）
-    const workspace = workspaces.find(w =>
-      w.name.toLowerCase() === workspaceName.toLowerCase()
-    );
+    // 使用预构建的 Map 查找工作区（忽略大小写）
+    const workspace = workspaceByName.get(workspaceName.toLowerCase());
 
     if (workspace) {
       // 使用平台特定的路径分隔符
