@@ -4,6 +4,7 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { openPath } from '@tauri-apps/plugin-opener';
+import { save } from '@tauri-apps/plugin-dialog';
 import type { Config, HealthStatus } from '../types';
 
 // ============================================================================
@@ -137,4 +138,41 @@ export async function pathExists(path: string) {
 /** 在默认应用中打开文件（HTML 文件可在浏览器中打开） */
 export async function openInDefaultApp(path: string): Promise<void> {
   await openPath(path);
+}
+
+// ============================================================================
+// 导出相关命令
+// ============================================================================
+
+/** 保存对话到文件 */
+export async function saveChatToFile(content: string, defaultFileName: string): Promise<string | null> {
+  try {
+    const filePath = await save({
+      defaultPath: defaultFileName,
+      filters: [
+        {
+          name: 'Markdown',
+          extensions: ['md']
+        },
+        {
+          name: 'JSON',
+          extensions: ['json']
+        },
+        {
+          name: '文本',
+          extensions: ['txt']
+        }
+      ]
+    });
+
+    if (filePath) {
+      // 写入文件内容，使用已有的 create_file 命令
+      await invoke('create_file', { path: filePath, content });
+      return filePath;
+    }
+    return null;
+  } catch (e) {
+    console.error('保存文件失败:', e);
+    throw e;
+  }
 }

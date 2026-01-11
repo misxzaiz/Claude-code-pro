@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { useWorkspaceStore, useViewStore } from '../../stores';
 import { useChatStore } from '../../stores';
+import * as tauri from '../../services/tauri';
+import { exportToMarkdown, generateFileName } from '../../services/chatExport';
 
 interface TopMenuBarProps {
   onNewConversation: () => void;
@@ -17,12 +19,35 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const { clearMessages, messages } = useChatStore();
 
   const currentWorkspace = getCurrentWorkspace();
 
   // 计算上下文工作区数量
   const contextCount = useWorkspaceStore(state => state.contextWorkspaceIds.length);
+
+  // 导出对话
+  const handleExportChat = async () => {
+    if (messages.length === 0) {
+      return;
+    }
+
+    setIsExporting(true);
+    try {
+      const content = exportToMarkdown(messages, currentWorkspace?.name);
+      const fileName = generateFileName('md');
+      const filePath = await tauri.saveChatToFile(content, fileName);
+
+      if (filePath) {
+        console.log('对话已导出到:', filePath);
+      }
+    } catch (error) {
+      console.error('导出对话失败:', error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const handleNewConversation = () => {
     if (messages.length > 0) {
@@ -118,6 +143,26 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
 
         {/* 分隔线 */}
         <div className="w-px h-4 bg-border-subtle" />
+
+        {/* 导出对话按钮 */}
+        <button
+          onClick={handleExportChat}
+          disabled={messages.length === 0 || isExporting}
+          className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-background-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          title="导出对话"
+        >
+          {isExporting ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 2l4 4-4 4" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M20 6h-4" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4h4" />
+            </svg>
+          )}
+        </button>
 
         {/* 新对话按钮 */}
         <button
