@@ -246,11 +246,9 @@ function WorkspaceMenuContent({ onClose, onCreateWorkspace }: {
     if (id !== currentWorkspaceId) {
       await switchWorkspace(id);
     }
-    onClose();
   };
 
   const handleCreateWorkspace = () => {
-    onClose();
     onCreateWorkspace();
   };
 
@@ -258,9 +256,6 @@ function WorkspaceMenuContent({ onClose, onCreateWorkspace }: {
     try {
       await deleteWorkspace(id);
       setShowDeleteConfirm(null);
-      if (workspaces.length > 1) {
-        onClose();
-      }
     } catch (error) {
       console.error('删除工作区失败:', error);
     }
