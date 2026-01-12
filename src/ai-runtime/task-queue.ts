@@ -9,15 +9,22 @@
  * 多 Engine 支持：
  * - Task 中可指定 engineId
  * - Queue 根据 engineId 从 EngineRegistry 获取 Engine
- * - 自动管理 Session 生命周期
+ * - 通过 SessionPool 复用 Session
+ *
+ * SessionPool 与 TaskQueue 的关系：
+ * - TaskQueue: 负责任务调度和并发控制
+ * - SessionPool: 负责 Session 生命周期管理
+ * - TaskQueue 通过 SessionPool 获取/归还 Session
  */
 
 import type { AISession, AISessionConfig } from './session'
 import type { AITask } from './task'
 import type { AIEvent, TaskStatus } from './event'
 import type { AIEngine } from './engine'
+import type { SessionPoolManager, SessionPoolConfig } from './session-pool'
 import { getEventBus, type EventBus } from './event-bus'
 import { getEngineRegistry } from './engine-registry'
+import { getSessionPoolManager } from './session-pool'
 
 /** 默认 Engine ID */
 const DEFAULT_ENGINE_ID = 'claude-code'
@@ -65,6 +72,12 @@ export interface TaskQueueConfig {
   eventBus?: EventBus
   /** 默认 Session 配置 */
   sessionConfig?: AISessionConfig
+  /** Session Pool 配置 */
+  sessionPoolConfig?: SessionPoolConfig
+  /** Session Pool 管理器（可选，不传则使用全局） */
+  sessionPoolManager?: SessionPoolManager
+  /** 是否启用 Session Pool（默认 true） */
+  enableSessionPool?: boolean
 }
 
 /**
@@ -81,13 +94,17 @@ export class TaskQueue {
   private eventBus: EventBus
   private isProcessing: boolean = false
   private defaultSessionConfig?: AISessionConfig
+  private sessionPoolManager: SessionPoolManager
+  private enableSessionPool: boolean
 
   constructor(config?: TaskQueueConfig) {
     this.maxParallel = config?.maxParallel ?? 1
     this.debug = config?.debug ?? false
     this.eventBus = config?.eventBus ?? getEventBus()
     this.defaultSessionConfig = config?.sessionConfig
-    this.log(`TaskQueue created with maxParallel=${this.maxParallel}`)
+    this.sessionPoolManager = config?.sessionPoolManager || getSessionPoolManager(config?.sessionPoolConfig)
+    this.enableSessionPool = config?.enableSessionPool ?? true
+    this.log(`TaskQueue created with maxParallel=${this.maxParallel}, sessionPool=${this.enableSessionPool}`)
   }
 
   /**
@@ -122,9 +139,9 @@ export class TaskQueue {
   }
 
   /**
-   * 为任务创建 Session
+   * 为任务获取 Session（通过 Pool 或直接创建）
    */
-  private async createSessionForTask(queuedTask: QueuedTask): Promise<AISession> {
+  private async acquireSessionForTask(queuedTask: QueuedTask): Promise<AISession> {
     const { task, engine, sessionConfig } = queuedTask
 
     // 合并默认配置和任务配置
@@ -133,10 +150,50 @@ export class TaskQueue {
       ...sessionConfig,
     }
 
-    const session = engine.createSession(config)
-    this.log(`Session created for task ${task.id} using engine ${engine.id}`)
+    if (this.enableSessionPool) {
+      // 从 SessionPool 获取
+      const pool = this.sessionPoolManager.getPool(engine)
+      const session = pool.acquire(config)
+      this.log(`Session acquired from pool for task ${task.id}, engine ${engine.id}`)
+      return session
+    } else {
+      // 直接创建新 Session
+      const session = engine.createSession(config)
+      this.log(`Session created for task ${task.id} using engine ${engine.id}`)
+      return session
+    }
+  }
 
-    return session
+  /**
+   * 归还 Session 到 Pool
+   */
+  private releaseSessionToPool(engine: AIEngine, session: AISession): void {
+    if (this.enableSessionPool) {
+      const pool = this.sessionPoolManager.getPool(engine)
+      pool.release(session)
+      this.log(`Session released to pool, engine ${engine.id}`)
+    } else {
+      // 不使用 Pool 时直接销毁
+      session.dispose()
+    }
+  }
+
+  /**
+   * 中断 Session 并归还到 Pool
+   */
+  private abortAndReleaseSessionFromPool(engine: AIEngine, session: AISession, taskId?: string): void {
+    if (this.enableSessionPool) {
+      const pool = this.sessionPoolManager.getPool(engine)
+      pool.abortAndRelease(session, taskId)
+      this.log(`Session aborted and released to pool, engine ${engine.id}`)
+    } else {
+      try {
+        session.abort(taskId)
+      } catch (e) {
+        console.error('[TaskQueue] Session abort error:', e)
+      }
+      session.dispose()
+    }
   }
 
   /**
@@ -260,9 +317,9 @@ export class TaskQueue {
     if (runningTask) {
       runningTask.abortController.abort()
 
-      // 中断 Session
+      // 中断 Session 并归还到 Pool
       if (runningTask.session) {
-        runningTask.session.abort(taskId)
+        this.abortAndReleaseSessionFromPool(runningTask.engine, runningTask.session, taskId)
       }
 
       runningTask.status = 'canceled'
@@ -351,12 +408,11 @@ export class TaskQueue {
     })
     this.pendingTasks = []
 
-    // 取消所有 running 任务并清理 Session
+    // 取消所有 running 任务并归还/清理 Session
     this.runningTasks.forEach((task) => {
       task.abortController.abort()
       if (task.session) {
-        task.session.abort(task.id)
-        task.session.dispose()
+        this.abortAndReleaseSessionFromPool(task.engine, task.session, task.id)
       }
     })
     this.runningTasks.clear()
@@ -430,9 +486,9 @@ export class TaskQueue {
         throw new Error('Task canceled before execution')
       }
 
-      // 创建 Session（如果没有预创建的）
+      // 获取 Session（从 Pool 或创建新的）
       if (!queuedTask.session) {
-        queuedTask.session = await this.createSessionForTask(queuedTask)
+        queuedTask.session = await this.acquireSessionForTask(queuedTask)
       }
 
       const session = queuedTask.session
@@ -468,7 +524,7 @@ export class TaskQueue {
     status: Exclude<QueuedTaskStatus, 'pending' | 'running'>,
     error?: string
   ): void {
-    const { id, startTime, session } = queuedTask
+    const { id, startTime, session, engine } = queuedTask
 
     queuedTask.status = status
     queuedTask.endTime = Date.now()
@@ -476,11 +532,18 @@ export class TaskQueue {
 
     const duration = startTime ? queuedTask.endTime - startTime : undefined
 
-    // 清理 Session
-    if (session && status !== 'canceled') {
-      // 正常完成或错误时，可以选择是否释放 Session
-      // 这里保留 Session 以便后续可能的重用
-      // 如果需要立即释放，调用 session.dispose()
+    // 处理 Session 生命周期
+    if (session) {
+      if (status === 'canceled') {
+        // 取消时中断并归还 Session
+        this.abortAndReleaseSessionFromPool(engine, session, id)
+      } else if (status === 'error') {
+        // 错误时归还 Session（可能重用）
+        this.releaseSessionToPool(engine, session)
+      } else {
+        // 成功时归还 Session（可复用）
+        this.releaseSessionToPool(engine, session)
+      }
     }
 
     // 发送 Task 元数据事件（最终状态）
@@ -524,11 +587,6 @@ export class TaskQueue {
         taskId: id,
       })
       this.log(`Task canceled: ${id}`)
-
-      // 取消时清理 Session
-      if (session) {
-        session.dispose()
-      }
     }
 
     // 继续调度

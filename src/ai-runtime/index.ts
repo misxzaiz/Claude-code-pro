@@ -17,6 +17,7 @@ export * from './cli-parser'
 export * from './engine-registry'
 export * from './task-template'
 export * from './project-context'
+export * from './session-pool'
 
 // 导出便捷工具函数
 export {
