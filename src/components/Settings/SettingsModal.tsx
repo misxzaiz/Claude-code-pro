@@ -57,14 +57,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     });
   };
 
-  const handleIFlowModelChange = (model: string) => {
-    if (!localConfig) return;
-    setLocalConfig({
-      ...localConfig,
-      iflow: { ...localConfig.iflow, model }
-    });
-  };
-
   if (!localConfig) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -160,7 +152,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
             <h3 className="text-sm font-medium text-text-primary mb-3">IFlow 配置</h3>
 
             {/* CLI 路径 */}
-            <div className="mb-3">
+            <div>
               <label className="block text-xs text-text-secondary mb-2">
                 IFlow CLI 命令路径（可选）
               </label>
@@ -170,26 +162,6 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                 disabled={loading}
                 placeholder="iflow"
               />
-            </div>
-
-            {/* 模型选择 */}
-            <div>
-              <label className="block text-xs text-text-secondary mb-2">
-                默认模型（可选）
-              </label>
-              <select
-                value={localConfig.iflow.model || ''}
-                onChange={(e) => handleIFlowModelChange(e.target.value)}
-                className="w-full px-3 py-2 bg-background-elevated border border-border rounded-lg text-text-primary text-sm focus:outline-none focus:border-primary"
-              >
-                <option value="">使用 IFlow 默认模型</option>
-                <option value="gpt-4">GPT-4</option>
-                <option value="gpt-4-turbo">GPT-4 Turbo</option>
-                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
-                <option value="claude-3-opus">Claude 3 Opus</option>
-                <option value="claude-3-sonnet">Claude 3 Sonnet</option>
-                <option value="claude-3-haiku">Claude 3 Haiku</option>
-              </select>
             </div>
           </div>
         )}

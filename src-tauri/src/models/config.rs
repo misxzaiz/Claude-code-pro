@@ -23,18 +23,12 @@ impl Default for ClaudeCodeConfig {
 pub struct IFlowConfig {
     /// IFlow CLI 命令路径（可选，默认为 "iflow"）
     pub cli_path: Option<String>,
-    /// 默认模型（可选）
-    pub model: Option<String>,
-    /// API 密钥（可选）
-    pub api_key: Option<String>,
 }
 
 impl Default for IFlowConfig {
     fn default() -> Self {
         Self {
             cli_path: None,
-            model: None,
-            api_key: None,
         }
     }
 }

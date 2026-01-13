@@ -65,27 +65,41 @@ impl IFlowService {
     /// 编码项目路径为 IFlow 格式
     ///
     /// IFlow 将路径中的特殊字符替换：
-    /// C:\Users\... -> C-Users-...
+    /// C:\Users\... -> -C-Users-...（只带前缀，不带后缀）
+    /// 关键：盘符后的冒号和反斜杠被当作一个分隔符，只产生一个 -
     fn encode_project_path(path: &str) -> String {
-        path.chars()
-            .map(|c| match c {
-                ':' | '\\' | '/' => '-',
-                c if c.is_alphanumeric() => c,
-                ' ' => '-',
-                '_' => '-',
-                '.' => '-',
-                _ => '-',
-            })
-            .collect()
+        // 先将盘符的 : 替换为空，然后统一处理 \ 和 /
+        let normalized = path.replace(":", "").replace("\\", "-").replace("/", "-");
+
+        // IFlow 在编码后的路径前面加 -
+        format!("-{}", normalized)
     }
 
     /// 获取项目会话目录
     fn get_project_session_dir(work_dir: &str) -> Result<PathBuf> {
         let config_dir = Self::get_iflow_config_dir()?;
-        let encoded_path = Self::encode_project_path(work_dir);
+        eprintln!("[get_project_session_dir] config_dir: {:?}", config_dir);
+        eprintln!("[get_project_session_dir] work_dir: {}", work_dir);
 
-        let mut projects_dir = config_dir;
+        let encoded_path = Self::encode_project_path(work_dir);
+        eprintln!("[get_project_session_dir] encoded_path: {}", encoded_path);
+
+        // 先列出 projects 目录下的所有子目录，帮助调试
+        let mut projects_dir = config_dir.clone();
         projects_dir.push("projects");
+        if projects_dir.exists() {
+            eprintln!("[get_project_session_dir] projects 目录存在，列出内容:");
+            if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        eprintln!("[get_project_session_dir]   - {}", name);
+                    }
+                }
+            }
+        } else {
+            eprintln!("[get_project_session_dir] projects 目录不存在: {:?}", projects_dir);
+        }
+
         projects_dir.push(&encoded_path);
 
         Ok(projects_dir)
@@ -141,8 +155,11 @@ impl IFlowService {
                     .unwrap_or_else(|| ".".to_string())
             });
 
+        // 获取 IFlow CLI 路径
+        let iflow_cmd = Self::get_iflow_cmd(config)?;
+
         // 构建命令
-        let mut cmd = Self::build_iflow_command(&work_dir, message);
+        let mut cmd = Self::build_iflow_command(&iflow_cmd, &work_dir, message);
 
         eprintln!("[IFlowService] 执行命令: {:?}", cmd);
 
@@ -164,9 +181,23 @@ impl IFlowService {
         ))
     }
 
+    /// 获取 IFlow CLI 路径
+    fn get_iflow_cmd(config: &Config) -> Result<String> {
+        if let Some(ref cli_path) = config.iflow.cli_path {
+            Ok(cli_path.clone())
+        } else {
+            // 尝试查找 IFlow
+            if let Some(path) = crate::services::config_store::ConfigStore::find_iflow_path() {
+                Ok(path)
+            } else {
+                Err(AppError::ConfigError("未找到 IFlow CLI，请在设置中配置路径".to_string()))
+            }
+        }
+    }
+
     /// 构建 IFlow 命令
-    fn build_iflow_command(work_dir: &str, message: &str) -> Command {
-        let mut cmd = Command::new("iflow");
+    fn build_iflow_command(iflow_cmd: &str, work_dir: &str, message: &str) -> Command {
+        let mut cmd = Command::new(iflow_cmd);
 
         // 基础参数
         cmd.arg("--yolo")  // 自动确认所有操作
@@ -282,8 +313,11 @@ impl IFlowService {
                     .unwrap_or_else(|| ".".to_string())
             });
 
+        // 获取 IFlow CLI 路径
+        let iflow_cmd = Self::get_iflow_cmd(config)?;
+
         // 构建继续命令
-        let mut cmd = Command::new("iflow");
+        let mut cmd = Command::new(&iflow_cmd);
         cmd.arg("--yolo")
             .arg("--resume")
             .arg(session_id)
@@ -309,33 +343,51 @@ impl IFlowService {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|| ".".to_string());
 
+        eprintln!("[find_session_jsonl] work_dir: {}", work_dir);
+        eprintln!("[find_session_jsonl] session_id: {}", session_id);
+
         let session_dir = Self::get_project_session_dir(&work_dir)?;
+        eprintln!("[find_session_jsonl] session_dir: {:?}", session_dir);
+        eprintln!("[find_session_jsonl] session_dir 存在: {}", session_dir.exists());
 
         // 查找包含指定 session_id 的文件
         let entries = std::fs::read_dir(&session_dir)
             .map_err(|e| AppError::ProcessError(format!("读取会话目录失败: {}", e)))?;
 
+        let mut file_count = 0;
         for entry in entries.flatten() {
             let path = entry.path();
             if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
+                eprintln!("[find_session_jsonl] 检查文件: {}", filename);
+                file_count += 1;
+
                 if filename.starts_with("session-") && filename.ends_with(".jsonl") {
+                    eprintln!("[find_session_jsonl] 匹配文件名格式，检查内容");
                     // 检查文件内容是否匹配 session_id
                     if let Ok(file) = File::open(&path) {
                         let reader = BufReader::new(file);
+                        let mut line_num = 0;
                         for line in reader.lines().take(10) {
+                            line_num += 1;
                             if let Ok(line_text) = line {
+                                eprintln!("[find_session_jsonl] 行{}: {}", line_num, line_text.chars().take(100).collect::<String>());
                                 if let Some(event) = IFlowJsonlEvent::parse_line(&line_text) {
+                                    eprintln!("[find_session_jsonl] 解析成功，event.session_id: {}", event.session_id);
                                     if event.session_id == session_id {
+                                        eprintln!("[find_session_jsonl] 找到匹配文件!");
                                         return Ok(path);
                                     }
                                 }
                             }
                         }
+                    } else {
+                        eprintln!("[find_session_jsonl] 无法打开文件");
                     }
                 }
             }
         }
 
+        eprintln!("[find_session_jsonl] 共检查 {} 个文件，未找到匹配", file_count);
         Err(AppError::ProcessError(format!("未找到会话文件: {}", session_id)))
     }
 }

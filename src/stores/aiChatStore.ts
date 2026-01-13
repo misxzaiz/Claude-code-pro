@@ -10,6 +10,7 @@ import type { Message, ToolStatus } from '../types'
 import type { AIEvent } from '../ai-runtime'
 import { getAIRuntime } from '../services/aiRuntimeService'
 import { useToolPanelStore } from './toolPanelStore'
+import { useConfigStore } from './configStore'
 
 /** 最大保留消息数量 */
 const MAX_MESSAGES = 500
@@ -334,8 +335,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
     // 清空工具面板
     useToolPanelStore.getState().clearTools()
 
+    // 从配置获取引擎设置
+    const config = useConfigStore.getState().config
+    const engineId = config?.defaultEngine || 'claude-code'
+
     try {
-      const service = getAIRuntime(workspaceDir ? { workspaceDir } : undefined)
+      const service = getAIRuntime({ workspaceDir, engineId })
 
       const sessionId = await service.sendMessage(
         content,
@@ -360,8 +365,12 @@ export const useAIChatStore = create<AIChatState>((set, get) => ({
 
     set({ isStreaming: true, error: null })
 
+    // 从配置获取引擎设置
+    const config = useConfigStore.getState().config
+    const engineId = config?.defaultEngine || 'claude-code'
+
     try {
-      const service = getAIRuntime()
+      const service = getAIRuntime({ engineId })
       await service.sendMessage(prompt, conversationId)
     } catch (e) {
       set({

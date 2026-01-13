@@ -8,7 +8,6 @@ use models::config::{Config, HealthStatus};
 use services::config_store::ConfigStore;
 use services::logger::Logger;
 use commands::chat::{start_chat, continue_chat, interrupt_chat};
-use commands::iflow_chat::{start_iflow_chat, continue_iflow_chat, interrupt_iflow_chat};
 use commands::{validate_workspace_path, get_directory_info};
 use commands::file_explorer::{
     read_directory, get_file_content, create_file, create_directory,
@@ -148,14 +147,10 @@ pub fn run() {
             // 健康检查
             health_check,
             detect_claude,
-            // 聊天相关 (Claude Code)
+            // 聊天相关（统一接口）
             start_chat,
             continue_chat,
             interrupt_chat,
-            // 聊天相关 (IFlow)
-            start_iflow_chat,
-            continue_iflow_chat,
-            interrupt_iflow_chat,
             // 工作区相关
             validate_workspace_path,
             get_directory_info,

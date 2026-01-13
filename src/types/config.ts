@@ -30,10 +30,6 @@ export interface Config {
   iflow: {
     /** IFlow CLI 命令路径 */
     cliPath?: string;
-    /** 默认模型 */
-    model?: string;
-    /** API 密钥 */
-    apiKey?: string;
   };
   /** 工作目录 */
   workDir?: string;

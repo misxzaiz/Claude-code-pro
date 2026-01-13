@@ -224,20 +224,11 @@ export class AIRuntimeService {
     const engineId = this.currentEngineId
 
     if (sessionId) {
-      if (engineId === 'iflow') {
-        await invoke('continue_iflow_chat', { sessionId, message })
-      } else {
-        await invoke('continue_chat', { sessionId, message, workDir })
-      }
+      await invoke('continue_chat', { sessionId, message, workDir, engineId })
       return sessionId
     } else {
-      if (engineId === 'iflow') {
-        const newSessionId = await invoke<string>('start_iflow_chat', { message })
-        return newSessionId
-      } else {
-        const newSessionId = await invoke<string>('start_chat', { message, workDir })
-        return newSessionId
-      }
+      const newSessionId = await invoke<string>('start_chat', { message, workDir, engineId })
+      return newSessionId
     }
   }
 
@@ -245,13 +236,7 @@ export class AIRuntimeService {
    * 中断会话
    */
   async interrupt(sessionId: string): Promise<void> {
-    const engineId = this.currentEngineId
-
-    if (engineId === 'iflow') {
-      await invoke('interrupt_iflow_chat', { sessionId })
-    } else {
-      await invoke('interrupt_chat', { sessionId })
-    }
+    await invoke('interrupt_chat', { sessionId })
 
     // 发送中断事件
     this.eventBus.emit({
@@ -332,10 +317,14 @@ let globalService: AIRuntimeService | null = null
 
 /**
  * 获取 AI Runtime 服务单例
+ *
+ * 每次调用时更新配置（特别是 engineId），确保使用最新的引擎设置
  */
 export function getAIRuntime(config?: AIRuntimeConfig): AIRuntimeService {
   if (!globalService) {
     globalService = new AIRuntimeService(config)
+  } else if (config) {
+    globalService.updateConfig(config)
   }
   return globalService
 }

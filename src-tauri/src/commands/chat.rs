@@ -1,11 +1,12 @@
 use crate::error::{AppError, Result};
-use crate::models::config::Config;
+use crate::models::config::{Config, EngineId};
 use crate::models::events::StreamEvent;
+use crate::services::iflow_service::IFlowService;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio, Child};
 use std::sync::Arc;
-use tauri::{Emitter, Window};
+use tauri::{Emitter, Window, State};
 use uuid::Uuid;
 
 #[cfg(windows)]
@@ -317,133 +318,298 @@ impl ChatSession {
 // ============================================================================
 
 /// 启动聊天会话（后台异步执行）
+///
+/// 统一接口，根据 engine_id 参数选择具体的 AI 引擎实现
 #[tauri::command]
 pub async fn start_chat(
     message: String,
     window: Window,
-    state: tauri::State<'_, crate::AppState>,
+    state: State<'_, crate::AppState>,
     work_dir: Option<String>,
+    engine_id: Option<String>,
 ) -> Result<String> {
     eprintln!("[start_chat] 收到消息，长度: {} 字符", message.len());
 
-    // 从 AppState 获取实际配置
-    let config_store = state.config_store.lock()
-        .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
-    let mut config = config_store.get().clone();
+    // 从 AppState 获取实际配置（在独立作用域中，确保 MutexGuard 在 await 前释放）
+    let (config, engine) = {
+        let config_store = state.config_store.lock()
+            .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
+        let mut cfg = config_store.get().clone();
 
-    // 如果传入了 work_dir 参数，优先使用它而不是配置中的
-    if let Some(ref work_dir_str) = work_dir {
-        let work_dir_path = PathBuf::from(work_dir_str);
-        eprintln!("[start_chat] 使用传入的工作目录: {:?}", work_dir_path);
-        config.work_dir = Some(work_dir_path);
+        // 如果传入了 work_dir 参数，优先使用它而不是配置中的
+        if let Some(ref work_dir_str) = work_dir {
+            let work_dir_path = PathBuf::from(work_dir_str);
+            eprintln!("[start_chat] 使用传入的工作目录: {:?}", work_dir_path);
+            cfg.work_dir = Some(work_dir_path);
+        }
+
+        // 解析引擎 ID，优先使用参数，其次使用配置中的默认引擎
+        let engine_id_str = engine_id.unwrap_or_else(|| cfg.default_engine.clone());
+        let engine = EngineId::from_str(&engine_id_str)
+            .unwrap_or(EngineId::ClaudeCode);
+
+        eprintln!("[start_chat] 使用引擎: {:?}", engine);
+
+        (cfg, engine)
+    }; // MutexGuard 在此处释放
+
+    match engine {
+        EngineId::ClaudeCode => {
+            start_claude_chat(&config, &message, window, state).await
+        }
+        EngineId::IFlow => {
+            start_iflow_chat_internal(&config, &message, window, state).await
+        }
     }
+}
+
+/// 启动 Claude Code 聊天会话
+async fn start_claude_chat(
+    config: &Config,
+    message: &str,
+    window: Window,
+    state: State<'_, crate::AppState>,
+) -> Result<String> {
+    eprintln!("[start_claude_chat] 启动 Claude 会话");
 
     // 启动 Claude 会话
-    let session = ChatSession::start(&config, &message)?;
+    let session = ChatSession::start(config, message)?;
 
     let session_id = session.id.clone();
     let window_clone = window.clone();
     let process_id = session.child.id();
 
-    eprintln!("[start_chat] 临时会话 ID: {}, 进程 ID: {}", session_id, process_id);
+    eprintln!("[start_claude_chat] 临时会话 ID: {}, 进程 ID: {}", session_id, process_id);
 
-    // 保存 PID 到全局 sessions，使用临时 UUID 作为 key
-    // 稍后收到真实的 session_id 时会更新 key
+    // 保存 PID 到全局 sessions
     {
         let mut sessions = state.sessions.lock()
             .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
         sessions.insert(session_id.clone(), process_id);
     }
 
-    // 释放所有 lock 后再启动线程
-    drop(config_store);
-
     // 克隆 sessions Arc 以便在回调中使用
     let sessions_arc = Arc::clone(&state.sessions);
     let temp_session_id = session_id.clone();
 
-    // 在后台线程中读取输出（消费 Child）
+    // 在后台线程中读取输出
     std::thread::spawn(move || {
-        eprintln!("[start_chat] 后台线程开始");
+        eprintln!("[start_claude_chat] 后台线程开始");
         session.read_events(move |event| {
             // 检查是否收到真实的 session_id
-            // System 事件的 session_id 存储在 extra HashMap 中
             if let StreamEvent::System { extra, .. } = &event {
                 if let Some(serde_json::Value::String(real_session_id)) = extra.get("session_id") {
-                    eprintln!("[start_chat] 收到真实 session_id: {}, 更新映射", real_session_id);
+                    eprintln!("[start_claude_chat] 收到真实 session_id: {}, 更新映射", real_session_id);
 
-                    // 获取 PID 并更新 sessions 映射
                     if let Ok(mut sessions) = sessions_arc.lock() {
-                        // 从临时 key 获取 PID
                         if let Some(&pid) = sessions.get(&temp_session_id) {
-                            // 删除临时映射
                             sessions.remove(&temp_session_id);
-                            // 用真实 session_id 重新插入
                             sessions.insert(real_session_id.clone(), pid);
-                            eprintln!("[start_chat] 映射已更新: {} -> PID {}", real_session_id, pid);
+                            eprintln!("[start_claude_chat] 映射已更新: {} -> PID {}", real_session_id, pid);
                         }
                     }
                 }
             }
 
-            // 发送事件到前端 - 直接序列化为 JSON 字符串
             let event_json = serde_json::to_string(&event)
                 .unwrap_or_else(|_| "{}".to_string());
-            eprintln!("[start_chat] 发送事件: {}", event_json);
+            eprintln!("[start_claude_chat] 发送事件: {}", event_json);
             let _ = window_clone.emit("chat-event", event_json);
         });
-        eprintln!("[start_chat] 后台线程结束");
+        eprintln!("[start_claude_chat] 后台线程结束");
     });
 
     Ok(session_id)
 }
 
+/// 启动 IFlow 聊天会话
+async fn start_iflow_chat_internal(
+    config: &Config,
+    message: &str,
+    window: Window,
+    state: State<'_, crate::AppState>,
+) -> Result<String> {
+    eprintln!("[start_iflow_chat] 启动 IFlow 会话");
+
+    // 启动 IFlow 会话
+    let session = IFlowService::start_chat(config, message)?;
+
+    let temp_session_id = session.id.clone();
+    let return_session_id = temp_session_id.clone();
+    let window_clone = window.clone();
+    let process_id = session.child.id();
+
+    eprintln!("[start_iflow_chat] 临时会话 ID: {}, 进程 ID: {:?}", temp_session_id, process_id);
+
+    // 保存 PID 到全局 sessions
+    {
+        let mut sessions = state.sessions.lock()
+            .map_err(|e| AppError::Unknown(e.to_string()))?;
+        sessions.insert(temp_session_id.clone(), process_id);
+    }
+
+    let sessions_arc = Arc::clone(&state.sessions);
+    let config_clone = config.clone();
+
+    // 启动后台线程监控进程
+    std::thread::spawn(move || {
+        eprintln!("[start_iflow_chat] 后台线程开始");
+
+        let temp_id = temp_session_id.clone();
+        let mut session_id_found = false;
+
+        // 读取 stderr 以获取会话信息
+        let mut child = session.child;
+        if let Some(stderr) = child.stderr.take() {
+            let reader = BufReader::new(stderr);
+
+            for line in reader.lines() {
+                if let Ok(line_text) = line {
+                    eprintln!("[iflow stderr] {}", line_text);
+
+                    if !session_id_found {
+                        if let Some(id) = extract_session_id(&line_text) {
+                            eprintln!("[start_iflow_chat] 找到 session_id: {}", id);
+
+                            // 更新 sessions 映射
+                            if let Ok(mut sessions) = sessions_arc.lock() {
+                                sessions.remove(&temp_id);
+                                sessions.insert(id.clone(), process_id);
+                            }
+
+                            session_id_found = true;
+
+                            // 发送 session_id 到前端
+                            let _ = window_clone.emit("chat-event", serde_json::json!({
+                                "type": "system",
+                                "subtype": "session_id",
+                                "extra": {
+                                    "session_id": id
+                                }
+                            }).to_string());
+
+                            // 查找 JSONL 文件并启动监控
+                            match IFlowService::find_session_jsonl(&config_clone, &id) {
+                                Ok(jsonl_path) => {
+                                    eprintln!("[start_iflow_chat] 找到 JSONL 文件: {:?}", jsonl_path);
+
+                                let sessions_arc_clone = Arc::clone(&sessions_arc);
+                                let id_clone = id.clone();
+                                let window_clone2 = window_clone.clone();
+                                let config_clone2 = config_clone.clone();
+
+                                IFlowService::monitor_jsonl_file(
+                                    jsonl_path,
+                                    id_clone.clone(),
+                                    move |event| {
+                                        let event_json = serde_json::to_string(&event)
+                                            .unwrap_or_else(|_| "{}".to_string());
+                                        eprintln!("[iflow] 发送事件: {}", event_json);
+                                        let _ = window_clone2.emit("chat-event", event_json);
+
+                                        if matches!(event, StreamEvent::SessionEnd) {
+                                            if let Ok(mut sessions) = sessions_arc_clone.lock() {
+                                                sessions.remove(&id_clone);
+                                            }
+                                        }
+                                    },
+                                );
+                                }
+                                Err(e) => {
+                                    eprintln!("[start_iflow_chat] 查找 JSONL 文件失败: {:?}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 等待进程结束
+        let _ = child.wait();
+
+        eprintln!("[start_iflow_chat] 后台线程结束");
+    });
+
+    Ok(return_session_id)
+}
+
 /// 继续聊天会话
+///
+/// 统一接口，根据 engine_id 参数选择具体的 AI 引擎实现
 #[tauri::command]
 pub async fn continue_chat(
     session_id: String,
     message: String,
     window: Window,
-    state: tauri::State<'_, crate::AppState>,
+    state: State<'_, crate::AppState>,
     work_dir: Option<String>,
+    engine_id: Option<String>,
 ) -> Result<()> {
     eprintln!("[continue_chat] 继续会话: {}", session_id);
     eprintln!("[continue_chat] 消息长度: {} 字符", message.len());
 
-    // 从 AppState 获取实际配置
-    let config_store = state.config_store.lock()
-        .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
-    let mut config = config_store.get().clone();
+    // 从 AppState 获取实际配置（在独立作用域中，确保 MutexGuard 在 await 前释放）
+    let (config, engine) = {
+        let config_store = state.config_store.lock()
+            .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
+        let mut cfg = config_store.get().clone();
 
-    // 如果传入了 work_dir 参数，优先使用它而不是配置中的
-    if let Some(ref work_dir_str) = work_dir {
-        let work_dir_path = PathBuf::from(work_dir_str);
-        eprintln!("[continue_chat] 使用传入的工作目录: {:?}", work_dir_path);
-        config.work_dir = Some(work_dir_path);
+        // 如果传入了 work_dir 参数，优先使用它而不是配置中的
+        if let Some(ref work_dir_str) = work_dir {
+            let work_dir_path = PathBuf::from(work_dir_str);
+            eprintln!("[continue_chat] 使用传入的工作目录: {:?}", work_dir_path);
+            cfg.work_dir = Some(work_dir_path);
+        }
+
+        // 解析引擎 ID
+        let engine_id_str = engine_id.unwrap_or_else(|| cfg.default_engine.clone());
+        let engine = EngineId::from_str(&engine_id_str)
+            .unwrap_or(EngineId::ClaudeCode);
+
+        eprintln!("[continue_chat] 使用引擎: {:?}", engine);
+
+        (cfg, engine)
+    }; // MutexGuard 在此处释放
+
+    match engine {
+        EngineId::ClaudeCode => {
+            continue_claude_chat(&config, &session_id, &message, window, state).await
+        }
+        EngineId::IFlow => {
+            continue_iflow_chat_internal(&config, &session_id, &message, window, state).await
+        }
     }
+}
+
+/// 继续 Claude Code 聊天会话
+async fn continue_claude_chat(
+    config: &Config,
+    session_id: &str,
+    message: &str,
+    window: Window,
+    state: State<'_, crate::AppState>,
+) -> Result<()> {
+    eprintln!("[continue_claude_chat] 继续 Claude 会话: {}", session_id);
 
     // 如果已存在旧进程，先尝试终止它
     let old_pid = {
         let mut sessions = state.sessions.lock()
             .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
-        sessions.remove(&session_id)
+        sessions.remove(session_id)
     };
 
     if let Some(pid) = old_pid {
-        eprintln!("[continue_chat] 发现旧进程 PID: {}, 尝试终止", pid);
+        eprintln!("[continue_claude_chat] 发现旧进程 PID: {}, 尝试终止", pid);
         terminate_process(pid);
     }
 
-    // 使用 Claude CLI 原生的 --resume 参数恢复会话
-    eprintln!("[continue_chat] 使用 --resume 参数恢复会话");
-
-    // 根据平台构建不同的命令
+    // 根据平台构建命令
     #[cfg(windows)]
     let mut cmd = {
-        // Windows: 直接调用 Node.js
         let claude_cmd = config.get_claude_cmd();
         let (node_exe, cli_js) = resolve_node_and_cli(&claude_cmd)?;
-        build_node_command_resume(&node_exe, &cli_js, &session_id, &message)
+        build_node_command_resume(&node_exe, &cli_js, session_id, message)
     };
 
     #[cfg(not(windows))]
@@ -451,67 +617,127 @@ pub async fn continue_chat(
         let claude_cmd = config.get_claude_cmd();
         Command::new(&claude_cmd)
             .arg("--resume")
-            .arg(&session_id)
+            .arg(session_id)
             .arg("--print")
             .arg("--verbose")
             .arg("--output-format")
             .arg("stream-json")
             .arg("--permission-mode")
             .arg("bypassPermissions")
-            .arg(&message)
+            .arg(message)
     };
 
     cmd.stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    // Windows 上隐藏窗口
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
 
-    // 设置工作目录
     if let Some(ref work_dir) = config.work_dir {
-        eprintln!("[continue_chat] work_dir: {:?}", work_dir);
+        eprintln!("[continue_claude_chat] work_dir: {:?}", work_dir);
         cmd.current_dir(work_dir);
     }
 
-    // 设置 Git Bash 环境变量 (Windows 需要)
     if let Some(ref git_bash_path) = config.git_bin_path {
-        eprintln!("[continue_chat] 设置 CLAUDE_CODE_GIT_BASH_PATH: {}", git_bash_path);
+        eprintln!("[continue_claude_chat] 设置 CLAUDE_CODE_GIT_BASH_PATH: {}", git_bash_path);
         cmd.env("CLAUDE_CODE_GIT_BASH_PATH", git_bash_path);
     }
 
-    eprintln!("[continue_chat] 执行命令: {:?}", cmd);
+    eprintln!("[continue_claude_chat] 执行命令: {:?}", cmd);
 
     let child = cmd.spawn()
         .map_err(|e| AppError::ProcessError(format!("继续 Claude 会话失败: {}", e)))?;
 
     let new_pid = child.id();
     let window_clone = window.clone();
+    let session_id_owned = session_id.to_string();
 
-    eprintln!("[continue_chat] 新进程 PID: {}", new_pid);
+    eprintln!("[continue_claude_chat] 新进程 PID: {}", new_pid);
 
-    // 保存新 PID 到全局 sessions
     {
         let mut sessions = state.sessions.lock()
             .map_err(|e| crate::error::AppError::Unknown(e.to_string()))?;
-        sessions.insert(session_id.clone(), new_pid);
+        sessions.insert(session_id_owned.clone(), new_pid);
     }
 
-    // 释放所有 lock 后再启动线程
-    drop(config_store);
-
-    // 在后台线程中读取输出（消费 Child）
     std::thread::spawn(move || {
-        eprintln!("[continue_chat] 后台线程开始");
-        let session = ChatSession::with_id_and_child(session_id.clone(), child);
+        eprintln!("[continue_claude_chat] 后台线程开始");
+        let session = ChatSession::with_id_and_child(session_id_owned, child);
         session.read_events(move |event| {
-            // 发送事件到前端
             let event_json = serde_json::to_string(&event)
                 .unwrap_or_else(|_| "{}".to_string());
-            eprintln!("[continue_chat] 发送事件: {}", event_json);
+            eprintln!("[continue_claude_chat] 发送事件: {}", event_json);
             let _ = window_clone.emit("chat-event", event_json);
         });
-        eprintln!("[continue_chat] 后台线程结束");
+        eprintln!("[continue_claude_chat] 后台线程结束");
+    });
+
+    Ok(())
+}
+
+/// 继续 IFlow 聊天会话
+async fn continue_iflow_chat_internal(
+    config: &Config,
+    session_id: &str,
+    message: &str,
+    window: Window,
+    state: State<'_, crate::AppState>,
+) -> Result<()> {
+    eprintln!("[continue_iflow_chat] 继续 IFlow 会话: {}", session_id);
+
+    let old_pid = {
+        let mut sessions = state.sessions.lock()
+            .map_err(|e| AppError::Unknown(e.to_string()))?;
+        sessions.remove(session_id)
+    };
+
+    if let Some(pid) = old_pid {
+        eprintln!("[continue_iflow_chat] 发现旧进程 PID: {:?}, 尝试终止", pid);
+        terminate_process(pid);
+    }
+
+    let mut child = IFlowService::continue_chat(config, session_id, message)?;
+    let new_pid = child.id();
+
+    eprintln!("[continue_iflow_chat] 新进程 PID: {:?}", new_pid);
+
+    let session_id_owned = session_id.to_string();
+    {
+        let mut sessions = state.sessions.lock()
+            .map_err(|e| AppError::Unknown(e.to_string()))?;
+        sessions.insert(session_id_owned.clone(), new_pid);
+    }
+
+    let sessions_arc = Arc::clone(&state.sessions);
+    let window_clone = window.clone();
+    let config_clone = config.clone();
+
+    std::thread::spawn(move || {
+        eprintln!("[continue_iflow_chat] 后台线程开始");
+
+        if let Ok(jsonl_path) = IFlowService::find_session_jsonl(&config_clone, &session_id_owned) {
+            let session_id_clone = session_id_owned.clone();
+            IFlowService::monitor_jsonl_file(
+                jsonl_path,
+                session_id_clone.clone(),
+                move |event| {
+                    let event_json = serde_json::to_string(&event)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    eprintln!("[iflow] 发送事件: {}", event_json);
+                    let _ = window_clone.emit("chat-event", event_json);
+
+                    if matches!(event, StreamEvent::SessionEnd) {
+                        if let Ok(mut sessions) = sessions_arc.lock() {
+                            sessions.remove(&session_id_clone);
+                        }
+                    }
+                },
+            );
+        }
+
+        let _ = child.wait();
+
+        eprintln!("[continue_iflow_chat] 后台线程结束");
     });
 
     Ok(())
@@ -596,4 +822,10 @@ pub async fn interrupt_chat(
     }
 
     Ok(())
+}
+
+/// 从文本中提取 IFlow session ID
+fn extract_session_id(text: &str) -> Option<String> {
+    let re = regex::Regex::new(r"session-[a-f0-9-]+").ok()?;
+    re.find(text).map(|m| m.as_str().to_string())
 }

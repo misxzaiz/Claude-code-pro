@@ -232,14 +232,26 @@ impl ConfigStore {
 
     /// 检测 IFlow CLI 是否可用
     pub fn detect_iflow(&self) -> Option<String> {
-        eprintln!("[detect_iflow] 尝试执行: iflow --version");
+        // 如果配置中指定了 iflow 路径，优先使用
+        let iflow_cmd = if let Some(ref cli_path) = self.config.iflow.cli_path {
+            cli_path.clone()
+        } else {
+            // 否则尝试查找
+            Self::find_iflow_path()?
+        };
 
-        let output = Command::new("iflow")
+        eprintln!("[detect_iflow] 尝试执行: {} --version", iflow_cmd);
+
+        let output = Command::new(&iflow_cmd)
             .arg("--version")
             .output();
 
         match output {
             Ok(output) => {
+                eprintln!("[detect_iflow] 进程退出码: {:?}", output.status.code());
+                eprintln!("[detect_iflow] stdout: {}", String::from_utf8_lossy(&output.stdout));
+                eprintln!("[detect_iflow] stderr: {}", String::from_utf8_lossy(&output.stderr));
+
                 if output.status.success() {
                     let version = String::from_utf8_lossy(&output.stdout)
                         .lines()
@@ -257,6 +269,77 @@ impl ConfigStore {
                 None
             }
         }
+    }
+
+    /// 查找 IFlow CLI 路径
+    pub fn find_iflow_path() -> Option<String> {
+        // 1. 尝试 which/where 命令
+        #[cfg(windows)]
+        if let Ok(output) = Command::new("where").arg("iflow").output() {
+            if output.status.success() {
+                if let Some(path) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                    eprintln!("[find_iflow_path] 找到: {}", path);
+                    return Some(path.to_string());
+                }
+            }
+        }
+
+        #[cfg(not(windows))]
+        if let Ok(output) = Command::new("which").arg("iflow").output() {
+            if output.status.success() {
+                if let Some(path) = String::from_utf8_lossy(&output.stdout).lines().next() {
+                    eprintln!("[find_iflow_path] 找到: {}", path);
+                    return Some(path.to_string());
+                }
+            }
+        }
+
+        // 2. 检查常见安装路径
+        #[cfg(windows)]
+        {
+            if let Ok(username) = env::var("USERNAME") {
+                let common_paths = vec![
+                    // npm 全局安装路径
+                    format!(r"{}\AppData\Roaming\npm\iflow.cmd", username),
+                    // Scoop 安装路径
+                    format!(r"{}\scoop\shims\iflow.cmd", env::var("USERPROFILE").unwrap_or_default()),
+                    // 直接尝试 iflow (可能在 PATH 中)
+                    "iflow.cmd".to_string(),
+                    "iflow".to_string(),
+                ];
+
+                for path in common_paths {
+                    eprintln!("[find_iflow_path] 检查: {}", path);
+                    if Path::new(&path).exists() {
+                        eprintln!("[find_iflow_path] 找到: {}", path);
+                        return Some(path);
+                    }
+                }
+            }
+        }
+
+        #[cfg(not(windows))]
+        {
+            let home = env::var("HOME").unwrap_or_default();
+            let common_paths = vec![
+                "/opt/homebrew/bin/iflow".to_string(),
+                "/usr/local/bin/iflow".to_string(),
+                "/usr/bin/iflow".to_string(),
+                format!("{}/.npm-global/bin/iflow", home),
+                format!("{}/.local/bin/iflow", home),
+            ];
+
+            for path in common_paths {
+                eprintln!("[find_iflow_path] 检查: {}", path);
+                if Path::new(&path).exists() {
+                    eprintln!("[find_iflow_path] 找到: {}", path);
+                    return Some(path);
+                }
+            }
+        }
+
+        eprintln!("[find_iflow_path] 未找到 iflow");
+        None
     }
 
     /// 获取健康状态
