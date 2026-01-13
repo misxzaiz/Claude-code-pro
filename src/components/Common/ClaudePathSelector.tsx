@@ -17,6 +17,8 @@ interface ClaudePathSelectorProps {
   compact?: boolean;
   /** 错误提示 */
   error?: string;
+  /** 占位符文本 */
+  placeholder?: string;
 }
 
 type InputMode = 'auto' | 'manual';
@@ -27,6 +29,7 @@ export function ClaudePathSelector({
   disabled = false,
   compact = false,
   error,
+  placeholder,
 }: ClaudePathSelectorProps) {
   const [mode, setMode] = useState<InputMode>('auto');
   const [detectedPaths, setDetectedPaths] = useState<string[]>([]);
@@ -190,7 +193,7 @@ export function ClaudePathSelector({
               className={`w-full px-3 py-2 pr-10 bg-background-surface border rounded-lg text-text-primary placeholder:text-text-tertiary focus:outline-none focus:ring-2 focus:ring-primary ${
                 error ? 'border-danger' : 'border-border'
               } ${disabled || validating ? 'opacity-50' : ''}`}
-              placeholder="请输入 Claude CLI 的完整路径"
+              placeholder={placeholder || "请输入 Claude CLI 的完整路径"}
             />
             {/* 验证状态图标 */}
             {value && (

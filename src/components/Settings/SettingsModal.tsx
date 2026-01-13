@@ -1,11 +1,25 @@
 import { useState } from 'react';
 import { useConfigStore } from '../../stores';
 import { Button, ClaudePathSelector } from '../Common';
-import type { Config } from '../../types';
+import type { Config, EngineId } from '../../types';
 
 interface SettingsModalProps {
   onClose: () => void;
 }
+
+/** 引擎选项 */
+const ENGINE_OPTIONS: { id: EngineId; name: string; description: string }[] = [
+  {
+    id: 'claude-code',
+    name: 'Claude Code',
+    description: 'Anthropic 官方 Claude CLI，提供最佳的 Claude 3.7 Sonnet 体验',
+  },
+  {
+    id: 'iflow',
+    name: 'IFlow',
+    description: '支持多种 AI 模型的智能编程助手，包括 OpenAI GPT-4、Claude 等',
+  },
+];
 
 export function SettingsModal({ onClose }: SettingsModalProps) {
   const { config, loading, error, updateConfig } = useConfigStore();
@@ -22,9 +36,33 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     }
   };
 
+  const handleEngineChange = (engineId: EngineId) => {
+    if (!localConfig) return;
+    setLocalConfig({ ...localConfig, defaultEngine: engineId });
+  };
+
   const handleClaudeCmdChange = (cmd: string) => {
     if (!localConfig) return;
-    setLocalConfig({ ...localConfig, claudeCmd: cmd });
+    setLocalConfig({
+      ...localConfig,
+      claudeCode: { ...localConfig.claudeCode, cliPath: cmd }
+    });
+  };
+
+  const handleIFlowCmdChange = (cmd: string) => {
+    if (!localConfig) return;
+    setLocalConfig({
+      ...localConfig,
+      iflow: { ...localConfig.iflow, cliPath: cmd }
+    });
+  };
+
+  const handleIFlowModelChange = (model: string) => {
+    if (!localConfig) return;
+    setLocalConfig({
+      ...localConfig,
+      iflow: { ...localConfig.iflow, model }
+    });
   };
 
   if (!localConfig) {
@@ -39,7 +77,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-background-elevated rounded-xl p-6 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto shadow-soft">
+      <div className="bg-background-elevated rounded-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto shadow-soft">
         {/* 标题 */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-text-primary">设置</h2>
@@ -60,17 +98,101 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
           </div>
         )}
 
-        {/* Claude 命令路径 */}
+        {/* AI 引擎选择 */}
         <div className="mb-6">
-          <label className="block text-sm font-medium text-text-secondary mb-2">
-            Claude CLI 命令路径
+          <label className="block text-sm font-medium text-text-secondary mb-3">
+            AI 引擎
           </label>
-          <ClaudePathSelector
-            value={localConfig.claudeCmd}
-            onChange={handleClaudeCmdChange}
-            disabled={loading}
-          />
+          <div className="space-y-2">
+            {ENGINE_OPTIONS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => handleEngineChange(option.id)}
+                className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                  localConfig.defaultEngine === option.id
+                    ? 'border-primary bg-primary/5'
+                    : 'border-border bg-surface hover:border-primary/30'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="font-medium text-text-primary">{option.name}</div>
+                    <div className="text-sm text-text-secondary mt-1">{option.description}</div>
+                  </div>
+                  <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    localConfig.defaultEngine === option.id
+                      ? 'border-primary bg-primary'
+                      : 'border-border'
+                  }`}>
+                    {localConfig.defaultEngine === option.id && (
+                      <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                      </svg>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
         </div>
+
+        {/* Claude Code 配置 */}
+        {localConfig.defaultEngine === 'claude-code' && (
+          <div className="mb-6 p-4 bg-surface rounded-lg border border-border">
+            <h3 className="text-sm font-medium text-text-primary mb-3">Claude Code 配置</h3>
+            <div>
+              <label className="block text-xs text-text-secondary mb-2">
+                Claude CLI 命令路径
+              </label>
+              <ClaudePathSelector
+                value={localConfig.claudeCode.cliPath}
+                onChange={handleClaudeCmdChange}
+                disabled={loading}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* IFlow 配置 */}
+        {localConfig.defaultEngine === 'iflow' && (
+          <div className="mb-6 p-4 bg-surface rounded-lg border border-border">
+            <h3 className="text-sm font-medium text-text-primary mb-3">IFlow 配置</h3>
+
+            {/* CLI 路径 */}
+            <div className="mb-3">
+              <label className="block text-xs text-text-secondary mb-2">
+                IFlow CLI 命令路径（可选）
+              </label>
+              <ClaudePathSelector
+                value={localConfig.iflow.cliPath || 'iflow'}
+                onChange={handleIFlowCmdChange}
+                disabled={loading}
+                placeholder="iflow"
+              />
+            </div>
+
+            {/* 模型选择 */}
+            <div>
+              <label className="block text-xs text-text-secondary mb-2">
+                默认模型（可选）
+              </label>
+              <select
+                value={localConfig.iflow.model || ''}
+                onChange={(e) => handleIFlowModelChange(e.target.value)}
+                className="w-full px-3 py-2 bg-background-elevated border border-border rounded-lg text-text-primary text-sm focus:outline-none focus:border-primary"
+              >
+                <option value="">使用 IFlow 默认模型</option>
+                <option value="gpt-4">GPT-4</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+                <option value="claude-3-opus">Claude 3 Opus</option>
+                <option value="claude-3-sonnet">Claude 3 Sonnet</option>
+                <option value="claude-3-haiku">Claude 3 Haiku</option>
+              </select>
+            </div>
+          </div>
+        )}
 
         {/* 按钮 */}
         <div className="flex justify-end gap-3">

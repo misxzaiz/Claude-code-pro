@@ -9,7 +9,7 @@ import { Button, ClaudePathSelector } from './index';
 export function ConnectingOverlay() {
   const { config, healthStatus, connectionState, error, retryConnection } = useConfigStore();
   const [showPathInput, setShowPathInput] = useState(false);
-  const [tempPath, setTempPath] = useState(config?.claudeCmd || '');
+  const [tempPath, setTempPath] = useState(config?.claudeCode?.cliPath || '');
 
   const handleRetry = async () => {
     await retryConnection();
@@ -63,8 +63,8 @@ export function ConnectingOverlay() {
         ) : isFailed ? (
           <div className="text-xs text-text-tertiary space-y-3 max-w-md">
             <p className="text-danger font-medium">❌ {error || 'Claude CLI 未找到'}</p>
-            {config?.claudeCmd && (
-              <p>当前路径: <code className="bg-background-surface px-1 py-0.5 rounded">{config.claudeCmd}</code></p>
+            {config?.claudeCode?.cliPath && (
+              <p>当前路径: <code className="bg-background-surface px-1 py-0.5 rounded">{config.claudeCode.cliPath}</code></p>
             )}
 
             {/* 详细诊断信息 */}
@@ -139,7 +139,7 @@ export function ConnectingOverlay() {
                   <Button
                     onClick={() => {
                       setShowPathInput(false);
-                      setTempPath(config?.claudeCmd || '');
+                      setTempPath(config?.claudeCode?.cliPath || '');
                     }}
                     variant="ghost"
                     className="flex-1"

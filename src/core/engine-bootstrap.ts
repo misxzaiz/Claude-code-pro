@@ -7,11 +7,12 @@
 
 import { getEngineRegistry, registerEngine } from '../ai-runtime'
 import { ClaudeCodeEngine } from '../engines/claude-code'
+import { IFlowEngine } from '../engines/iflow'
 
 /**
  * 已注册的 Engine ID 列表
  */
-export const REGISTERED_ENGINE_IDS = ['claude-code'] as const
+export const REGISTERED_ENGINE_IDS = ['claude-code', 'iflow'] as const
 
 /**
  * Engine 类型
@@ -26,9 +27,13 @@ export type EngineId = typeof REGISTERED_ENGINE_IDS[number]
 export async function bootstrapEngines(): Promise<void> {
   const registry = getEngineRegistry()
 
-  // 注册 Claude Code Engine
+  // 注册 Claude Code Engine（默认）
   const claudeEngine = new ClaudeCodeEngine()
   registerEngine(claudeEngine, { asDefault: true })
+
+  // 注册 IFlow Engine
+  const iflowEngine = new IFlowEngine()
+  registerEngine(iflowEngine)
 
   // 初始化所有 Engine
   await registry.initializeAll()

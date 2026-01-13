@@ -2,7 +2,7 @@
  * AI Runtime - AI 抽象运行时
  *
  * 这是一个通用的 AI Code Runtime 平台的核心抽象层。
- * 提供了统一的接口来集成不同的 AI Engine（Claude Code、OpenAI、本地 LLM 等）。
+ * 提供了统一的接口来集成不同的 AI Engine（Claude Code、IFlow、OpenAI、本地 LLM 等）。
  *
  * @module ai-runtime
  */
