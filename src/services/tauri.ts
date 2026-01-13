@@ -77,6 +77,25 @@ export async function interruptChat(sessionId: string): Promise<void> {
 }
 
 // ============================================================================
+// IFlow 聊天相关命令
+// ============================================================================
+
+/** 启动 IFlow 聊天会话 */
+export async function startIFlowChat(message: string): Promise<string> {
+  return invoke<string>('start_iflow_chat', { message });
+}
+
+/** 继续 IFlow 聊天会话 */
+export async function continueIFlowChat(sessionId: string, message: string): Promise<void> {
+  return invoke('continue_iflow_chat', { sessionId, message });
+}
+
+/** 中断 IFlow 聊天 */
+export async function interruptIFlowChat(sessionId: string): Promise<void> {
+  return invoke('interrupt_iflow_chat', { sessionId });
+}
+
+// ============================================================================
 // 工作区相关命令
 // ============================================================================
 

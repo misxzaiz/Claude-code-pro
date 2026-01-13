@@ -130,6 +130,8 @@ export interface AIRuntimeConfig {
   verbose?: boolean
   /** 是否启用 EventBus 调试 */
   debug?: boolean
+  /** 使用的引擎 ID */
+  engineId?: 'claude-code' | 'iflow'
 }
 
 /**
@@ -146,9 +148,11 @@ export class AIRuntimeService {
   private currentSession: AISession | null = null
   private unlistenFn: UnlistenFn | null = null
   private config: AIRuntimeConfig
+  private currentEngineId: 'claude-code' | 'iflow' = 'claude-code'
 
   constructor(config?: AIRuntimeConfig) {
     this.config = config || {}
+    this.currentEngineId = this.config.engineId || 'claude-code'
     this.eventBus = getEventBus({ debug: this.config.debug })
     this.parser = createParser()
   }
@@ -217,13 +221,23 @@ export class AIRuntimeService {
    */
   async sendMessage(message: string, sessionId?: string): Promise<string> {
     const workDir = this.config.workspaceDir
+    const engineId = this.currentEngineId
 
     if (sessionId) {
-      await invoke('continue_chat', { sessionId, message, workDir })
+      if (engineId === 'iflow') {
+        await invoke('continue_iflow_chat', { sessionId, message })
+      } else {
+        await invoke('continue_chat', { sessionId, message, workDir })
+      }
       return sessionId
     } else {
-      const newSessionId = await invoke<string>('start_chat', { message, workDir })
-      return newSessionId
+      if (engineId === 'iflow') {
+        const newSessionId = await invoke<string>('start_iflow_chat', { message })
+        return newSessionId
+      } else {
+        const newSessionId = await invoke<string>('start_chat', { message, workDir })
+        return newSessionId
+      }
     }
   }
 
@@ -231,7 +245,13 @@ export class AIRuntimeService {
    * 中断会话
    */
   async interrupt(sessionId: string): Promise<void> {
-    await invoke('interrupt_chat', { sessionId })
+    const engineId = this.currentEngineId
+
+    if (engineId === 'iflow') {
+      await invoke('interrupt_iflow_chat', { sessionId })
+    } else {
+      await invoke('interrupt_chat', { sessionId })
+    }
 
     // 发送中断事件
     this.eventBus.emit({
@@ -284,6 +304,24 @@ export class AIRuntimeService {
    */
   updateConfig(config: Partial<AIRuntimeConfig>): void {
     this.config = { ...this.config, ...config }
+    if (config.engineId) {
+      this.currentEngineId = config.engineId
+    }
+  }
+
+  /**
+   * 获取当前引擎 ID
+   */
+  getEngineId(): 'claude-code' | 'iflow' {
+    return this.currentEngineId
+  }
+
+  /**
+   * 设置引擎 ID
+   */
+  setEngineId(engineId: 'claude-code' | 'iflow'): void {
+    this.currentEngineId = engineId
+    this.config.engineId = engineId
   }
 }
 

@@ -1,8 +1,9 @@
 use crate::error::{AppError, Result};
-use crate::models::config::{Config, HealthStatus};
+use crate::models::config::{Config, HealthStatus, EngineId, ClaudeCodeConfig};
 use std::path::{Path, PathBuf};
 use std::env;
 use std::process::Command;
+use serde::{Deserialize, Serialize};
 
 /// 配置存储管理器
 pub struct ConfigStore {
@@ -27,13 +28,18 @@ impl ConfigStore {
         eprintln!("配置文件路径: {:?}", config_path);
 
         let mut config = Self::load_from_file(&config_path)?;
-        eprintln!("当前 claude_cmd: {}", config.claude_cmd);
 
-        // 如果 claude_cmd 是默认值，尝试解析完整路径
-        if config.claude_cmd == "claude" {
+        // 执行配置迁移
+        config.migrate();
+
+        eprintln!("当前引擎: {}", config.default_engine);
+        eprintln!("当前 claude_code.cli_path: {}", config.claude_code.cli_path);
+
+        // 如果 claude_code.cli_path 是默认值，尝试解析完整路径
+        if config.claude_code.cli_path == "claude" {
             eprintln!("尝试解析 Claude 路径...");
             if let Some(full_path) = Self::resolve_claude_path() {
-                config.claude_cmd = full_path.clone();
+                config.claude_code.cli_path = full_path.clone();
                 eprintln!("找到 Claude 路径: {}", full_path);
                 // 立即保存配置
                 if let Err(e) = Self::save_config_to_path(&config, &config_path) {
@@ -121,8 +127,18 @@ impl ConfigStore {
     fn load_from_file(path: &Path) -> Result<Config> {
         if path.exists() {
             let content = std::fs::read_to_string(path)?;
-            let config: Config = serde_json::from_str(&content)?;
-            Ok(config)
+            // 先尝试按新格式解析
+            if let Ok(mut config) = serde_json::from_str::<Config>(&content) {
+                // 执行迁移
+                config.migrate();
+                return Ok(config);
+            }
+            // 如果失败，尝试按旧格式解析然后迁移
+            if let Ok(old_config) = serde_json::from_str::<OldConfig>(&content) {
+                return Ok(old_config.migrate_to_new());
+            }
+            // 都失败，返回默认配置
+            Ok(Config::default())
         } else {
             Ok(Config::default())
         }
@@ -154,17 +170,38 @@ impl ConfigStore {
 
     /// 设置 Claude 命令路径
     pub fn set_claude_cmd(&mut self, cmd: String) -> Result<()> {
-        self.config.claude_cmd = cmd;
+        self.config.claude_code.cli_path = cmd;
         self.save()
     }
 
-    
+    /// 设置默认引擎
+    pub fn set_engine(&mut self, engine_id: EngineId) -> Result<()> {
+        self.config.set_engine_id(engine_id);
+        self.save()
+    }
+
+    /// 获取会话目录
+    pub fn session_dir(&self) -> Result<PathBuf> {
+        if let Some(ref dir) = self.config.session_dir {
+            Ok(dir.clone())
+        } else {
+            let data_dir = dirs::data_local_dir()
+                .ok_or_else(|| AppError::ConfigError("无法获取数据目录".to_string()))?
+                .join("claude-code-pro")
+                .join("sessions");
+
+            // 确保目录存在
+            std::fs::create_dir_all(&data_dir)?;
+            Ok(data_dir)
+        }
+    }
 
     /// 检测 Claude CLI 是否可用
     pub fn detect_claude(&self) -> Option<String> {
-        eprintln!("[detect_claude] 尝试执行: {} --version", self.config.claude_cmd);
+        let cmd = self.config.get_claude_cmd();
+        eprintln!("[detect_claude] 尝试执行: {} --version", cmd);
 
-        let output = Command::new(&self.config.claude_cmd)
+        let output = Command::new(&cmd)
             .arg("--version")
             .output();
 
@@ -193,19 +230,32 @@ impl ConfigStore {
         }
     }
 
-    /// 获取会话目录
-    pub fn session_dir(&self) -> Result<PathBuf> {
-        if let Some(ref dir) = self.config.session_dir {
-            Ok(dir.clone())
-        } else {
-            let data_dir = dirs::data_local_dir()
-                .ok_or_else(|| AppError::ConfigError("无法获取数据目录".to_string()))?
-                .join("claude-code-pro")
-                .join("sessions");
+    /// 检测 IFlow CLI 是否可用
+    pub fn detect_iflow(&self) -> Option<String> {
+        eprintln!("[detect_iflow] 尝试执行: iflow --version");
 
-            // 确保目录存在
-            std::fs::create_dir_all(&data_dir)?;
-            Ok(data_dir)
+        let output = Command::new("iflow")
+            .arg("--version")
+            .output();
+
+        match output {
+            Ok(output) => {
+                if output.status.success() {
+                    let version = String::from_utf8_lossy(&output.stdout)
+                        .lines()
+                        .next()
+                        .map(|s| s.to_string());
+                    eprintln!("[detect_iflow] 解析成功: {:?}", version);
+                    version
+                } else {
+                    eprintln!("[detect_iflow] 命令执行失败");
+                    None
+                }
+            }
+            Err(e) => {
+                eprintln!("[detect_iflow] 启动进程失败: {:?}", e);
+                None
+            }
         }
     }
 
@@ -214,9 +264,14 @@ impl ConfigStore {
         let claude_version = self.detect_claude();
         let claude_available = claude_version.is_some();
 
+        let iflow_version = self.detect_iflow();
+        let iflow_available = iflow_version.is_some();
+
         HealthStatus {
             claude_available,
             claude_version,
+            iflow_available: Some(iflow_available),
+            iflow_version,
             work_dir: self.config.work_dir.as_ref()
                 .and_then(|p| p.to_str().map(|s| s.to_string())),
             config_valid: true,
@@ -339,8 +394,34 @@ impl ConfigStore {
             }
         }
     }
+}
 
+/// 旧版配置格式（用于迁移）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OldConfig {
+    claude_cmd: String,
+    work_dir: Option<PathBuf>,
+    session_dir: Option<PathBuf>,
+    git_bin_path: Option<String>,
+}
 
+impl OldConfig {
+    /// 迁移到新配置格式
+    fn migrate_to_new(self) -> Config {
+        let claude_cmd_clone = self.claude_cmd.clone();
+        Config {
+            default_engine: "claude-code".to_string(),
+            claude_code: crate::models::config::ClaudeCodeConfig {
+                cli_path: self.claude_cmd,
+            },
+            iflow: Default::default(),
+            work_dir: self.work_dir,
+            session_dir: self.session_dir,
+            git_bin_path: self.git_bin_path,
+            claude_cmd: Some(claude_cmd_clone),
+        }
+    }
 }
 
 impl Default for ConfigStore {

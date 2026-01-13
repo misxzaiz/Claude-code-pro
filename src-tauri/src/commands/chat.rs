@@ -164,21 +164,22 @@ impl ChatSession {
     /// 启动新的聊天会话
     pub fn start(config: &Config, message: &str) -> Result<Self> {
         eprintln!("[ChatSession::start] 启动 Claude 会话");
-        eprintln!("[ChatSession::start] claude_cmd: {}", config.claude_cmd);
+        let claude_cmd = config.get_claude_cmd();
+        eprintln!("[ChatSession::start] claude_cmd: {}", claude_cmd);
         eprintln!("[ChatSession::start] message 长度: {} 字符", message.len());
 
         // 根据平台构建不同的命令
         #[cfg(windows)]
         let mut cmd = {
             // Windows: 直接调用 Node.js，绕过 cmd.exe
-            let (node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+            let (node_exe, cli_js) = resolve_node_and_cli(&claude_cmd)?;
             build_node_command(&node_exe, &cli_js, message)
         };
 
         #[cfg(not(windows))]
         let mut cmd = {
             // Unix/Mac: 直接使用 claude 命令
-            Command::new(&config.claude_cmd)
+            Command::new(&claude_cmd)
                 .arg("--print")
                 .arg("--verbose")
                 .arg("--output-format")
@@ -440,13 +441,15 @@ pub async fn continue_chat(
     #[cfg(windows)]
     let mut cmd = {
         // Windows: 直接调用 Node.js
-        let (node_exe, cli_js) = resolve_node_and_cli(&config.claude_cmd)?;
+        let claude_cmd = config.get_claude_cmd();
+        let (node_exe, cli_js) = resolve_node_and_cli(&claude_cmd)?;
         build_node_command_resume(&node_exe, &cli_js, &session_id, &message)
     };
 
     #[cfg(not(windows))]
     let mut cmd = {
-        Command::new(&config.claude_cmd)
+        let claude_cmd = config.get_claude_cmd();
+        Command::new(&claude_cmd)
             .arg("--resume")
             .arg(&session_id)
             .arg("--print")
