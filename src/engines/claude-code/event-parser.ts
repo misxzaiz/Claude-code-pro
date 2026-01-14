@@ -5,7 +5,7 @@
  * 这是适配器的核心转换层。
  */
 
-import type { AIEvent } from '../../ai-runtime'
+import type { AIEvent, ToolCallInfo } from '../../ai-runtime'
 import {
   createToolCallStartEvent,
   createToolCallEndEvent,
@@ -14,15 +14,21 @@ import {
   createSessionEndEvent,
   createUserMessageEvent,
   createAssistantMessageEvent,
-  type ToolCallInfo,
 } from '../../ai-runtime'
+import {
+  BaseEventParser,
+  type BaseStreamEvent,
+} from '../../ai-runtime/base'
+
+// 重新导出 ToolCallManager 以保持向后兼容
+export { ToolCallManager } from '../../ai-runtime/base'
 
 /**
  * Claude Code StreamEvent 类型（来自 Rust 后端）
  *
  * 这些是 Claude Code CLI 输出的原始事件格式。
  */
-export interface ClaudeStreamEvent {
+export interface ClaudeStreamEvent extends BaseStreamEvent {
   type: string
   [key: string]: unknown
 }
@@ -120,55 +126,13 @@ export interface MessageContent {
 }
 
 /**
- * 工具调用状态管理
- */
-class ToolCallManager {
-  private toolCalls = new Map<string, ToolCallInfo>()
-
-  startToolCall(toolName: string, toolId: string, input: Record<string, unknown>): ToolCallInfo {
-    const toolCall: ToolCallInfo = {
-      id: toolId,
-      name: toolName,
-      args: input,
-      status: 'running',
-    }
-    this.toolCalls.set(toolId, toolCall)
-    return toolCall
-  }
-
-  endToolCall(toolId: string, output?: unknown, success = true): void {
-    const toolCall = this.toolCalls.get(toolId)
-    if (toolCall) {
-      toolCall.status = success ? 'completed' : 'failed'
-      toolCall.result = output
-    }
-  }
-
-  getToolCalls(): ToolCallInfo[] {
-    return Array.from(this.toolCalls.values())
-  }
-
-  removeToolCall(toolId: string): void {
-    this.toolCalls.delete(toolId)
-  }
-
-  clear(): void {
-    this.toolCalls.clear()
-  }
-}
-
-/**
  * Claude Code Event Parser
  *
  * 将 Claude CLI 的 StreamEvent 转换为通用的 AIEvent。
+ * 继承自 BaseEventParser，使用共享的 ToolCallManager。
  */
-export class ClaudeEventParser {
-  private toolCallManager = new ToolCallManager()
-  private sessionId: string
-
-  constructor(sessionId: string) {
-    this.sessionId = sessionId
-  }
+export class ClaudeEventParser extends BaseEventParser<ClaudeStreamEvent> {
+  // 继承自基类的 toolCallManager 和 sessionId
 
   /**
    * 解析单个 Claude StreamEvent 为 AIEvent
@@ -271,7 +235,7 @@ export class ClaudeEventParser {
       const toolName = toolUse.name || 'unknown'
       const input = toolUse.input || {}
 
-      // 管理工具调用状态
+      // 管理工具调用状态（使用继承的 ToolCallManager）
       this.toolCallManager.startToolCall(toolName, toolId, input)
 
       toolCalls.push({
@@ -381,48 +345,26 @@ export class ClaudeEventParser {
 
     return subtype
   }
-
-  /**
-   * 重置解析器状态
-   */
-  reset(): void {
-    this.toolCallManager.clear()
-  }
-
-  /**
-   * 获取当前的工具调用列表
-   */
-  getCurrentToolCalls(): ToolCallInfo[] {
-    return this.toolCallManager.getToolCalls()
-  }
 }
 
 /**
  * 解析单行 JSON 为 ClaudeStreamEvent
+ *
+ * 使用基类的静态方法实现
  */
 export function parseStreamEventLine(line: string): ClaudeStreamEvent | null {
-  try {
-    const trimmed = line.trim()
-    if (!trimmed) return null
-    return JSON.parse(trimmed) as ClaudeStreamEvent
-  } catch {
-    return null
-  }
+  return BaseEventParser.parseJSONLine<ClaudeStreamEvent>(line)
 }
 
 /**
  * 将 Claude StreamEvent 数组转换为 AIEvent 数组
+ *
+ * 使用基类的通用函数实现
  */
 export function convertClaudeEventsToAIEvents(
   events: ClaudeStreamEvent[],
   sessionId: string
 ): AIEvent[] {
   const parser = new ClaudeEventParser(sessionId)
-  const results: AIEvent[] = []
-
-  for (const event of events) {
-    results.push(...parser.parse(event))
-  }
-
-  return results
+  return events.flatMap(e => parser.parse(e))
 }

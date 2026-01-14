@@ -18,6 +18,8 @@ export * from './engine-registry'
 export * from './task-template'
 export * from './project-context'
 export * from './session-pool'
+// 导出基类（用于 Engine 实现）
+export * from './base'
 
 // 导出便捷工具函数
 export {

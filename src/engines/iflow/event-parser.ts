@@ -15,8 +15,14 @@ import {
   createSessionEndEvent,
   createAssistantMessageEvent,
   createUserMessageEvent,
-  type ToolCallInfo,
 } from '../../ai-runtime'
+import {
+  BaseEventParser,
+  type BaseStreamEvent,
+} from '../../ai-runtime/base'
+
+// 重新导出 ToolCallManager 以保持向后兼容
+export { ToolCallManager } from '../../ai-runtime/base'
 
 /**
  * IFlow StreamEvent 类型（来自 IFlow CLI）
@@ -24,7 +30,7 @@ import {
  * 这些是 IFlow CLI 输出的原始事件格式。
  * 注意：实际格式需要根据 IFlow CLI 的真实输出调整。
  */
-export interface IFlowStreamEvent {
+export interface IFlowStreamEvent extends BaseStreamEvent {
   type: string
   [key: string]: unknown
 }
@@ -87,55 +93,13 @@ export interface IFlowSessionEvent extends IFlowStreamEvent {
 }
 
 /**
- * 工具调用状态管理
- */
-class ToolCallManager {
-  private toolCalls = new Map<string, ToolCallInfo>()
-
-  startToolCall(toolName: string, toolId: string, input: Record<string, unknown>): ToolCallInfo {
-    const toolCall: ToolCallInfo = {
-      id: toolId,
-      name: toolName,
-      args: input,
-      status: 'running',
-    }
-    this.toolCalls.set(toolId, toolCall)
-    return toolCall
-  }
-
-  endToolCall(toolId: string, output?: unknown, success = true): void {
-    const toolCall = this.toolCalls.get(toolId)
-    if (toolCall) {
-      toolCall.status = success ? 'completed' : 'failed'
-      toolCall.result = output
-    }
-  }
-
-  getToolCalls(): ToolCallInfo[] {
-    return Array.from(this.toolCalls.values())
-  }
-
-  removeToolCall(toolId: string): void {
-    this.toolCalls.delete(toolId)
-  }
-
-  clear(): void {
-    this.toolCalls.clear()
-  }
-}
-
-/**
  * IFlow Event Parser
  *
  * 将 IFlow CLI 的输出转换为通用的 AIEvent。
+ * 继承自 BaseEventParser，使用共享的 ToolCallManager。
  */
-export class IFlowEventParser {
-  private toolCallManager = new ToolCallManager()
-  private sessionId: string
-
-  constructor(sessionId: string) {
-    this.sessionId = sessionId
-  }
+export class IFlowEventParser extends BaseEventParser<IFlowStreamEvent> {
+  // 继承自基类的 toolCallManager 和 sessionId
 
   /**
    * 解析单个 IFlow StreamEvent 为 AIEvent
@@ -242,7 +206,7 @@ export class IFlowEventParser {
     const args = event.args || event.input || {}
 
     if (!event.status || event.status === 'start') {
-      // 工具调用开始
+      // 工具调用开始（使用继承的 ToolCallManager）
       const toolId = crypto.randomUUID()
       this.toolCallManager.startToolCall(toolName, toolId, args)
 
@@ -278,48 +242,26 @@ export class IFlowEventParser {
   private parseErrorEvent(event: IFlowErrorEvent): AIEvent {
     return createErrorEvent(event.error || event.message || '未知错误')
   }
-
-  /**
-   * 重置解析器状态
-   */
-  reset(): void {
-    this.toolCallManager.clear()
-  }
-
-  /**
-   * 获取当前的工具调用列表
-   */
-  getCurrentToolCalls(): ToolCallInfo[] {
-    return this.toolCallManager.getToolCalls()
-  }
 }
 
 /**
  * 解析单行 JSON 为 IFlowStreamEvent
+ *
+ * 使用基类的静态方法实现
  */
 export function parseStreamEventLine(line: string): IFlowStreamEvent | null {
-  try {
-    const trimmed = line.trim()
-    if (!trimmed) return null
-    return JSON.parse(trimmed) as IFlowStreamEvent
-  } catch {
-    return null
-  }
+  return BaseEventParser.parseJSONLine<IFlowStreamEvent>(line)
 }
 
 /**
  * 将 IFlow StreamEvent 数组转换为 AIEvent 数组
+ *
+ * 使用基类的通用函数实现
  */
 export function convertIFlowEventsToAIEvents(
   events: IFlowStreamEvent[],
   sessionId: string
 ): AIEvent[] {
   const parser = new IFlowEventParser(sessionId)
-  const results: AIEvent[] = []
-
-  for (const event of events) {
-    results.push(...parser.parse(event))
-  }
-
-  return results
+  return events.flatMap(e => parser.parse(e))
 }
