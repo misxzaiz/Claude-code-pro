@@ -113,11 +113,8 @@ impl IFlowJsonlEvent {
             "assistant" => {
                 // assistant 消息可能包含文本和工具调用
                 if let Some(ref message) = self.message {
-                    // 首先添加工具调用开始事件
-                    if let Some(tool_starts) = self.extract_tool_starts(message) {
-                        events.extend(tool_starts);
-                    }
-                    // 然后添加文本/assistant 消息
+                    // 只添加 assistant 消息（包含 tool_use 块），不额外添加 tool_start 事件
+                    // 这样与 Claude Code 的行为一致，避免前端重复添加工具调用
                     if let Some(assistant_event) = self.to_assistant_event(message) {
                         events.push(assistant_event);
                     }
@@ -189,40 +186,6 @@ impl IFlowJsonlEvent {
                 "stop_reason": message.stop_reason,
             }),
         })
-    }
-
-    /// 从消息中提取工具调用开始事件
-    fn extract_tool_starts(&self, message: &IFlowMessage) -> Option<Vec<crate::models::events::StreamEvent>> {
-        let mut events = Vec::new();
-
-        let content_array = match &message.content {
-            serde_json::Value::Array(arr) => arr,
-            _ => return None,
-        };
-
-        for item in content_array {
-            if let Some(obj) = item.as_object() {
-                if let Some(tool_use) = obj.get("type").and_then(|v| v.as_str()) {
-                    if tool_use == "tool_use" {
-                        let id = obj.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("unknown");
-                        let input = obj.get("input").cloned().unwrap_or(serde_json::Value::Null);
-
-                        events.push(crate::models::events::StreamEvent::ToolStart {
-                            tool_use_id: id.to_string(),
-                            tool_name: name.to_string(),
-                            input,
-                        });
-                    }
-                }
-            }
-        }
-
-        if events.is_empty() {
-            None
-        } else {
-            Some(events)
-        }
     }
 
     /// 从用户消息中提取工具结果事件
