@@ -1,14 +1,38 @@
 /**
  * 聊天导出服务 - 将对话导出为 Markdown 或 JSON 格式
+ * 支持 ChatMessage 类型（内容块架构）
  */
 
-import type { Message } from '../types';
+import type { ChatMessage, AssistantChatMessage, UserChatMessage, ContentBlock } from '../types';
 
 /**
- * 将对话转换为 Markdown 格式
+ * 从内容块中提取文本内容
+ */
+function extractTextFromBlocks(blocks: ContentBlock[]): string {
+  return blocks
+    .filter(block => block.type === 'text')
+    .map(block => (block as any).content)
+    .join('');
+}
+
+/**
+ * 从内容块中提取工具调用摘要
+ */
+function extractToolSummary(blocks: ContentBlock[]): { count: number; names: string[] } | undefined {
+  const toolBlocks = blocks.filter(block => block.type === 'tool_call');
+  if (toolBlocks.length === 0) return undefined;
+
+  return {
+    count: toolBlocks.length,
+    names: Array.from(new Set(toolBlocks.map(block => (block as any).name))),
+  };
+}
+
+/**
+ * 将 ChatMessage 转换为 Markdown 格式
  */
 export function exportToMarkdown(
-  messages: Message[],
+  messages: ChatMessage[],
   workspaceName?: string
 ): string {
   const date = new Date().toLocaleString('zh-CN', {
@@ -31,34 +55,49 @@ export function exportToMarkdown(
   md += '\n---\n\n';
 
   for (const message of messages) {
-    const role = message.role === 'user' ? '用户' : '助手';
     const time = new Date(message.timestamp).toLocaleString('zh-CN', {
       hour: '2-digit',
       minute: '2-digit',
     });
 
-    md += `## ${role}\n\n`;
-    md += `<small>${time}</small>\n\n`;
+    if (message.type === 'user') {
+      const userMsg = message as UserChatMessage;
+      md += `## 用户\n\n`;
+      md += `<small>${time}</small>\n\n`;
+      md += formatContent(userMsg.content);
+      md += '\n\n---\n\n';
+    } else if (message.type === 'assistant') {
+      const assistantMsg = message as AssistantChatMessage;
+      md += `## 助手\n\n`;
+      md += `<small>${time}</small>\n\n`;
 
-    // 处理内容，保留代码块格式
-    md += formatContent(message.content);
+      // 从 blocks 中提取文本内容
+      const textContent = extractTextFromBlocks(assistantMsg.blocks);
+      md += formatContent(textContent);
 
-    // 添加工具调用摘要（如果有）
-    if (message.toolSummary && message.toolSummary.count > 0) {
-      md += `\n\n*调用了 ${message.toolSummary.count} 个工具: ${message.toolSummary.names.join(', ')}*`;
+      // 添加工具调用摘要（如果有）
+      const toolSummary = extractToolSummary(assistantMsg.blocks);
+      if (toolSummary && toolSummary.count > 0) {
+        md += `\n\n*调用了 ${toolSummary.count} 个工具: ${toolSummary.names.join(', ')}*`;
+      }
+
+      md += '\n\n---\n\n';
+    } else if (message.type === 'system') {
+      md += `## 系统\n\n`;
+      md += `<small>${time}</small>\n\n`;
+      md += `*${(message as any).content}*\n\n`;
+      md += '---\n\n';
     }
-
-    md += '\n\n---\n\n';
   }
 
   return md;
 }
 
 /**
- * 将对话转换为 JSON 格式
+ * 将 ChatMessage 转换为 JSON 格式
  */
 export function exportToJson(
-  messages: Message[],
+  messages: ChatMessage[],
   workspaceName?: string
 ): string {
   const data = {
@@ -69,10 +108,14 @@ export function exportToJson(
       exportedBy: 'Claude Code Pro',
     },
     messages: messages.map(m => ({
-      role: m.role,
-      content: m.content,
+      type: m.type,
+      content: m.type === 'assistant'
+        ? extractTextFromBlocks((m as AssistantChatMessage).blocks)
+        : (m as UserChatMessage).content,
       timestamp: m.timestamp,
-      toolSummary: m.toolSummary,
+      toolSummary: m.type === 'assistant'
+        ? extractToolSummary((m as AssistantChatMessage).blocks)
+        : undefined,
     })),
   };
 

@@ -3,8 +3,7 @@
  */
 
 import { useState } from 'react';
-import { useWorkspaceStore, useViewStore } from '../../stores';
-import { useChatStore } from '../../stores';
+import { useWorkspaceStore, useViewStore, useEventChatStore } from '../../stores';
 import * as tauri from '../../services/tauri';
 import { exportToMarkdown, generateFileName } from '../../services/chatExport';
 
@@ -20,7 +19,7 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
   const [showViewMenu, setShowViewMenu] = useState(false);
   const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const { clearMessages, messages } = useChatStore();
+  const { clearMessages, messages } = useEventChatStore();
 
   const currentWorkspace = getCurrentWorkspace();
 
