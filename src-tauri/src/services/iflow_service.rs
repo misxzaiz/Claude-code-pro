@@ -91,18 +91,18 @@ impl IFlowService {
         // 先列出 projects 目录下的所有子目录，帮助调试
         let mut projects_dir = config_dir.clone();
         projects_dir.push("projects");
-        if projects_dir.exists() {
-            eprintln!("[get_project_session_dir] projects 目录存在，列出内容:");
-            if let Ok(entries) = std::fs::read_dir(&projects_dir) {
-                for entry in entries.flatten() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        eprintln!("[get_project_session_dir]   - {}", name);
-                    }
-                }
-            }
-        } else {
-            eprintln!("[get_project_session_dir] projects 目录不存在: {:?}", projects_dir);
-        }
+//         if projects_dir.exists() {
+//             eprintln!("[get_project_session_dir] projects 目录存在，列出内容:");
+//             if let Ok(entries) = std::fs::read_dir(&projects_dir) {
+//                 for entry in entries.flatten() {
+//                     if let Some(name) = entry.file_name().to_str() {
+//                         eprintln!("[get_project_session_dir]   - {}", name);
+//                     }
+//                 }
+//             }
+//         } else {
+//             eprintln!("[get_project_session_dir] projects 目录不存在: {:?}", projects_dir);
+//         }
 
         projects_dir.push(&encoded_path);
 
