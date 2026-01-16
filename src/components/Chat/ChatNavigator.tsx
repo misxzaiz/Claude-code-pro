@@ -33,6 +33,12 @@ const SHOW_DELAY = 150;
 /** 触发区域宽度（像素） */
 const TRIGGER_WIDTH = 20;
 
+/** 进度条基础宽度（像素） */
+const PROGRESS_BAR_WIDTH = 4;
+
+/** 进度条悬停宽度（像素） */
+const PROGRESS_BAR_HOVER_WIDTH = 8;
+
 export function ChatNavigator({
   rounds,
   currentRoundIndex,
@@ -147,20 +153,28 @@ export function ChatNavigator({
       {/* 进度条（仅视觉） */}
       <div
         className={clsx(
-          'absolute right-0 top-0 bottom-0 bg-primary/20 rounded-l-full transition-all duration-150 pointer-events-none',
-          isHovering && 'bg-primary/40',
-          isPanelVisible && 'bg-primary/60',
+          'absolute right-0 top-0 bottom-0 rounded-l-full transition-all duration-200 pointer-events-none',
+          isHovering || isPanelVisible
+            ? 'bg-primary/50 shadow-glow'
+            : 'bg-primary/30',
         )}
-        style={{ width: isHovering || isPanelVisible ? 6 : 4 }}
+        style={{
+          width: isHovering || isPanelVisible ? PROGRESS_BAR_HOVER_WIDTH : PROGRESS_BAR_WIDTH
+        }}
       />
 
       {/* 当前位置指示器 */}
       <div
         className={clsx(
-          'absolute right-0 w-2 h-2 bg-primary rounded-full shadow-glow transition-all duration-150 pointer-events-none',
-          isHovering && 'w-2.5 h-2.5',
+          'absolute right-0 bg-primary rounded-full shadow-glow transition-all duration-200 pointer-events-none',
+          isHovering || isPanelVisible
+            ? 'w-3 h-3 bg-primary'
+            : 'w-2.5 h-2.5 bg-primary/80',
         )}
-        style={{ top: `${Math.min(Math.max(currentPositionPercent, 2), 98)}%`, transform: 'translate(50%, -50%)' }}
+        style={{
+          top: `${Math.min(Math.max(currentPositionPercent, 2), 98)}%`,
+          transform: 'translate(50%, -50%)'
+        }}
       />
 
       {/* 悬浮面板 */}

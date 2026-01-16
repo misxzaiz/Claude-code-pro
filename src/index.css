@@ -36,14 +36,14 @@ body {
   height: 10px;
 }
 
-/* 隐藏 Virtuoso 消息列表的滚动条 */
-.virtuoso-scroll-container::-webkit-scrollbar {
+/* 隐藏 Virtuoso 滚动条 - 使用属性选择器更可靠 */
+[data-virtuoso-scroller]::-webkit-scrollbar {
   display: none;
 }
 
-.virtuoso-scroll-container {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+[data-virtuoso-scroller] {
+  -ms-overflow-style: none;  /* IE/Edge */
+  scrollbar-width: none;      /* Firefox */
 }
 
 ::-webkit-scrollbar-track {
