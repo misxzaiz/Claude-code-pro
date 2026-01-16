@@ -43,6 +43,9 @@ const PROGRESS_BAR_HOVER_WIDTH = 8;
 const TRIGGER_AREA_TOP = '30%';
 const TRIGGER_AREA_BOTTOM = '30%';
 
+/** 面板最小顶部间距 */
+const PANEL_MIN_TOP = 8;
+
 export function ChatNavigator({
   rounds,
   currentRoundIndex,
@@ -56,6 +59,9 @@ export function ChatNavigator({
   const isHoveringPanelRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 当前高亮项的 ref，用于自动滚动到可视区域
+  const currentItemRef = useRef<HTMLDivElement>(null);
 
   // 清除所有定时器
   const clearTimers = useCallback(() => {
@@ -128,6 +134,32 @@ export function ChatNavigator({
     return 30 + (fullPercent * 0.4);
   }, [currentRoundIndex, rounds.length]);
 
+  // 计算面板动态位置，确保不超出视口
+  const panelStyle = useMemo(() => {
+    const viewportHeight = window.innerHeight;
+    const triggerTop = viewportHeight * 0.3;  // 30% 位置
+    const panelMaxHeight = viewportHeight * 0.4;  // 40vh
+
+    // 确保面板顶部不会超出视口
+    const top = Math.max(triggerTop, PANEL_MIN_TOP);
+
+    return {
+      right: '4px',
+      top: `${top}px`,
+      maxHeight: `${panelMaxHeight}px`,
+    };
+  }, []);
+
+  // 当面板显示或当前项变化时，滚动到当前项
+  useEffect(() => {
+    if (isPanelVisible && currentItemRef.current) {
+      currentItemRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest',
+      });
+    }
+  }, [isPanelVisible, currentRoundIndex]);
+
   // 悬停状态（用于样式）
   const [isHovering, setIsHovering] = useState(false);
 
@@ -194,16 +226,12 @@ export function ChatNavigator({
       {isPanelVisible && (
         <div
           className={clsx(
-            'absolute w-52 bg-background-elevated/95 backdrop-blur-sm',
+            'absolute w-56 bg-background-elevated/95 backdrop-blur-sm',
             'border border-border rounded-lg shadow-lg shadow-primary/10',
-            'overflow-hidden transition-all duration-200',
+            'overflow-hidden transition-all duration-150',
             'pointer-events-auto'
           )}
-          style={{
-            right: '4px',
-            top: TRIGGER_AREA_TOP,
-            maxHeight: '40vh',
-          }}
+          style={panelStyle}
           onMouseEnter={handlePanelMouseEnter}
           onMouseLeave={handlePanelMouseLeave}
         >
@@ -223,6 +251,7 @@ export function ChatNavigator({
             {rounds.map((round, idx) => (
               <div
                 key={round.roundIndex}
+                ref={idx === currentRoundIndex ? currentItemRef : null}
                 className={clsx(
                   'px-3 py-2 border-b border-border-subtle/50 cursor-pointer transition-colors',
                   'hover:bg-background-hover',
