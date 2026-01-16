@@ -11,9 +11,9 @@
  * - Edit 工具优化显示
  */
 
-import { useMemo, memo, useState, useCallback } from 'react';
+import { useMemo, memo, useState, useCallback, useRef } from 'react';
 import React from 'react';
-import { Virtuoso } from 'react-virtuoso';
+import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { clsx } from 'clsx';
 import type { ChatMessage, UserChatMessage, AssistantChatMessage, ContentBlock, TextBlock, ToolCallBlock } from '../../types';
 import { useEventChatStore } from '../../stores';
@@ -31,6 +31,8 @@ import {
   type GrepOutputData
 } from '../../utils/toolSummary';
 import { Check, XCircle, Loader2, AlertTriangle, Play, ChevronDown, ChevronRight, Circle, FileSearch } from 'lucide-react';
+import { ChatNavigator } from './ChatNavigator';
+import { groupConversationRounds } from '../../utils/conversationRounds';
 
 // 配置 marked
 marked.setOptions({
@@ -773,12 +775,62 @@ export function EnhancedChatMessages() {
   const isEmpty = messages.length === 0;
   const hasArchive = archivedMessages.length > 0;
 
+  // Virtuoso 引用，用于滚动控制
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+
   // 智能自动滚动：用户在底部附近时自动滚动，离开底部时禁用
   const [autoScroll, setAutoScroll] = useState(true);
+
+  // 当前可见的对话轮次索引
+  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
+
+  // 对话轮次分组
+  const conversationRounds = useMemo(() => {
+    return groupConversationRounds(messages);
+  }, [messages]);
 
   // 检测用户是否在底部附近（基于像素距离）
   const handleAtBottomStateChange = useCallback((atBottom: boolean) => {
     setAutoScroll(atBottom);
+  }, []);
+
+  // 监听可见范围变化，更新当前轮次索引
+  const handleRangeChange = useCallback((range: { startIndex: number; endIndex: number }) => {
+    const { startIndex, endIndex } = range;
+    // 找到包含可见范围第一个消息的轮次
+    const round = conversationRounds.findIndex(r =>
+      r.messageIndices.some(idx => idx >= startIndex && idx <= endIndex)
+    );
+    if (round >= 0) {
+      setCurrentRoundIndex(round);
+    }
+  }, [conversationRounds]);
+
+  // 滚动到指定轮次
+  const scrollToRound = useCallback((roundIndex: number) => {
+    const round = conversationRounds[roundIndex];
+    if (!round || !virtuosoRef.current) return;
+
+    const firstMessageIndex = round.messageIndices[0];
+    virtuosoRef.current.scrollToIndex({
+      index: firstMessageIndex,
+      align: 'start',
+      behavior: 'smooth',
+    });
+
+    setAutoScroll(false); // 禁用自动滚动
+  }, [conversationRounds]);
+
+  // 滚动到底部
+  const scrollToBottom = useCallback(() => {
+    if (!virtuosoRef.current) return;
+
+    virtuosoRef.current.scrollToIndex({
+      index: 'LAST',
+      behavior: 'smooth',
+    });
+
+    setAutoScroll(true); // 启用自动滚动
   }, []);
 
   return (
@@ -799,12 +851,13 @@ export function EnhancedChatMessages() {
       )}
 
       {/* 消息列表 */}
-      <div className="flex-1 min-h-0">
+      <div className="flex-1 min-h-0 relative">
         <div className="h-full px-4">
           {isEmpty ? (
             <EmptyState />
           ) : (
             <Virtuoso
+              ref={virtuosoRef}
               style={{ height: '100%' }}
               data={messages}
               itemContent={(_index, item) => renderChatMessage(item)}
@@ -815,11 +868,22 @@ export function EnhancedChatMessages() {
               followOutput={autoScroll ? 'smooth' : false}
               atBottomStateChange={handleAtBottomStateChange}
               atBottomThreshold={150}
+              rangeChanged={handleRangeChange}
               increaseViewportBy={{ top: 100, bottom: 300 }}
               initialTopMostItemIndex={messages.length - 1}
             />
           )}
         </div>
+
+        {/* 聊天导航器 */}
+        {!isEmpty && (
+          <ChatNavigator
+            rounds={conversationRounds}
+            currentRoundIndex={currentRoundIndex}
+            onScrollToBottom={scrollToBottom}
+            onScrollToRound={scrollToRound}
+          />
+        )}
       </div>
     </div>
   );
