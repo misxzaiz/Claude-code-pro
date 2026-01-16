@@ -36,6 +36,16 @@ body {
   height: 10px;
 }
 
+/* 隐藏 Virtuoso 消息列表的滚动条 */
+.virtuoso-scroll-container::-webkit-scrollbar {
+  display: none;
+}
+
+.virtuoso-scroll-container {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
 ::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 5px;

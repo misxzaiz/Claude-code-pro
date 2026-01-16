@@ -25,10 +25,13 @@ interface ChatNavigatorProps {
 }
 
 /** 延迟隐藏时间（毫秒） */
-const HIDE_DELAY = 300;
+const HIDE_DELAY = 150;
 
 /** 悬停展开延迟（毫秒） */
 const SHOW_DELAY = 150;
+
+/** 触发区域宽度（像素） */
+const TRIGGER_WIDTH = 20;
 
 export function ChatNavigator({
   rounds,
@@ -37,8 +40,10 @@ export function ChatNavigator({
   onScrollToRound,
 }: ChatNavigatorProps) {
   const [isPanelVisible, setIsPanelVisible] = useState(false);
-  const [isHovering, setIsHovering] = useState(false);
-  const [isHoveringPanel, setIsHoveringPanel] = useState(false);
+
+  // 使用 ref 存储悬停状态，避免闭包陷阱
+  const isHoveringRef = useRef(false);
+  const isHoveringPanelRef = useRef(false);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -58,11 +63,12 @@ export function ChatNavigator({
   const scheduleHide = useCallback(() => {
     clearTimers();
     hideTimerRef.current = setTimeout(() => {
-      if (!isHovering && !isHoveringPanel) {
+      // 直接读取 ref 的当前值，不依赖闭包
+      if (!isHoveringRef.current && !isHoveringPanelRef.current) {
         setIsPanelVisible(false);
       }
     }, HIDE_DELAY);
-  }, [isHovering, isHoveringPanel, clearTimers]);
+  }, [clearTimers]);
 
   // 显示面板（带延迟）
   const scheduleShow = useCallback(() => {
@@ -74,23 +80,25 @@ export function ChatNavigator({
 
   // 进度条悬停处理
   const handleProgressBarMouseEnter = useCallback(() => {
+    isHoveringRef.current = true;
     setIsHovering(true);
     scheduleShow();
   }, [scheduleShow]);
 
   const handleProgressBarMouseLeave = useCallback(() => {
+    isHoveringRef.current = false;
     setIsHovering(false);
     scheduleHide();
   }, [scheduleHide]);
 
   // 面板悬停处理
   const handlePanelMouseEnter = useCallback(() => {
-    setIsHoveringPanel(true);
+    isHoveringPanelRef.current = true;
     clearTimers();
   }, [clearTimers]);
 
   const handlePanelMouseLeave = useCallback(() => {
-    setIsHoveringPanel(false);
+    isHoveringPanelRef.current = false;
     scheduleHide();
   }, [scheduleHide]);
 
@@ -106,6 +114,9 @@ export function ChatNavigator({
     if (currentRoundIndex >= rounds.length) return 100;
     return ((currentRoundIndex + 1) / rounds.length) * 100;
   }, [currentRoundIndex, rounds.length]);
+
+  // 悬停状态（用于样式）
+  const [isHovering, setIsHovering] = useState(false);
 
   // 点击对话轮次
   const handleRoundClick = useCallback((roundIndex: number) => {
@@ -125,22 +136,28 @@ export function ChatNavigator({
 
   return (
     <div className="absolute inset-y-0 right-0 flex items-center pointer-events-none">
-      {/* 进度条 */}
+      {/* 透明触发区域 - 20px 宽 */}
       <div
-        className={clsx(
-          'absolute right-0 top-0 bottom-0 bg-primary/20 rounded-l-full transition-all duration-150 cursor-pointer pointer-events-auto',
-          isHovering && 'bg-primary/40 w-1.5',
-          isPanelVisible && 'bg-primary/60 w-1.5',
-        )}
-        style={{ width: isHovering || isPanelVisible ? 6 : 4 }}
+        className="absolute right-0 top-0 bottom-0 pointer-events-auto cursor-pointer"
+        style={{ width: TRIGGER_WIDTH }}
         onMouseEnter={handleProgressBarMouseEnter}
         onMouseLeave={handleProgressBarMouseLeave}
+      />
+
+      {/* 进度条（仅视觉） */}
+      <div
+        className={clsx(
+          'absolute right-0 top-0 bottom-0 bg-primary/20 rounded-l-full transition-all duration-150 pointer-events-none',
+          isHovering && 'bg-primary/40',
+          isPanelVisible && 'bg-primary/60',
+        )}
+        style={{ width: isHovering || isPanelVisible ? 6 : 4 }}
       />
 
       {/* 当前位置指示器 */}
       <div
         className={clsx(
-          'absolute right-0 w-2 h-2 bg-primary rounded-full shadow-glow transition-all duration-150',
+          'absolute right-0 w-2 h-2 bg-primary rounded-full shadow-glow transition-all duration-150 pointer-events-none',
           isHovering && 'w-2.5 h-2.5',
         )}
         style={{ top: `${Math.min(Math.max(currentPositionPercent, 2), 98)}%`, transform: 'translate(50%, -50%)' }}
@@ -150,7 +167,7 @@ export function ChatNavigator({
       {isPanelVisible && (
         <div
           className={clsx(
-            'absolute right-2 top-4 w-52 bg-background-elevated/95 backdrop-blur-sm',
+            'absolute right-1 top-4 w-52 bg-background-elevated/95 backdrop-blur-sm',
             'border border-border rounded-lg shadow-lg shadow-primary/10',
             'overflow-hidden transition-all duration-200',
             'pointer-events-auto'
