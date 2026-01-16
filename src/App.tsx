@@ -47,26 +47,32 @@ function App() {
 
   // 初始化配置（只执行一次）
   useEffect(() => {
-    if (isInitialized.current) return;
-
     const initializeApp = async () => {
-      // 先加载配置，获取默认引擎
-      await loadConfig();
-
-      // 获取默认引擎 ID
-      const config = useConfigStore.getState().config;
-      const defaultEngine = config?.defaultEngine || 'claude-code';
-
-      // 按需初始化 AI Engine Registry，只加载默认引擎
-      await bootstrapEngines(defaultEngine);
-
-      // 尝试从本地存储恢复聊天状态
-      const restored = restoreFromStorage();
-      if (restored) {
-        console.log('[App] 已从崩溃中恢复聊天状态');
-      }
-
+      // 双重检查：防止 Strict Mode 或其他原因导致重复执行
+      if (isInitialized.current) return;
       isInitialized.current = true;
+
+      try {
+        // 先加载配置，获取默认引擎
+        await loadConfig();
+
+        // 获取默认引擎 ID
+        const config = useConfigStore.getState().config;
+        const defaultEngine = config?.defaultEngine || 'claude-code';
+
+        // 按需初始化 AI Engine Registry，只加载默认引擎
+        await bootstrapEngines(defaultEngine);
+
+        // 尝试从本地存储恢复聊天状态
+        const restored = restoreFromStorage();
+        if (restored) {
+          console.log('[App] 已从崩溃中恢复聊天状态');
+        }
+      } catch (error) {
+        console.error('[App] 初始化失败:', error);
+        // 失败时重置标志，允许重试
+        isInitialized.current = false;
+      }
     };
 
     initializeApp();
