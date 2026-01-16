@@ -46,6 +46,26 @@ body {
   scrollbar-width: none;      /* Firefox */
 }
 
+/* 聊天导航器面板列表滚动条 - 极致对称 */
+.chat-navigator-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.chat-navigator-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.chat-navigator-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+}
+
+.chat-navigator-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
 ::-webkit-scrollbar-track {
   background: rgba(255, 255, 255, 0.05);
   border-radius: 5px;

@@ -28,16 +28,16 @@ interface ChatNavigatorProps {
 const HIDE_DELAY = 150;
 
 /** 悬停展开延迟（毫秒） */
-const SHOW_DELAY = 150;
+const SHOW_DELAY = 0;
 
 /** 触发区域宽度（像素） */
 const TRIGGER_WIDTH = 20;
 
 /** 进度条基础宽度（像素） */
-const PROGRESS_BAR_WIDTH = 4;
+const PROGRESS_BAR_WIDTH = 6;
 
 /** 进度条悬停宽度（像素） */
-const PROGRESS_BAR_HOVER_WIDTH = 8;
+const PROGRESS_BAR_HOVER_WIDTH = 12;
 
 /** 触发区域垂直范围 - 中间 40% */
 const TRIGGER_AREA_TOP = '30%';
@@ -144,7 +144,7 @@ export function ChatNavigator({
     const top = Math.max(triggerTop, PANEL_MIN_TOP);
 
     return {
-      right: '4px',
+      right: '20px',
       top: `${top}px`,
       maxHeight: `${panelMaxHeight}px`,
     };
@@ -183,8 +183,9 @@ export function ChatNavigator({
     <div className="absolute inset-y-0 right-0 pointer-events-none">
       {/* 透明触发区域 - 中间 40% */}
       <div
-        className="absolute right-0 pointer-events-auto cursor-pointer"
+        className="absolute pointer-events-auto cursor-pointer"
         style={{
+          right: '16px',
           width: TRIGGER_WIDTH,
           top: TRIGGER_AREA_TOP,
           bottom: TRIGGER_AREA_BOTTOM,
@@ -196,12 +197,13 @@ export function ChatNavigator({
       {/* 进度条（仅视觉） - 中间 40% */}
       <div
         className={clsx(
-          'absolute right-0 rounded-l-full transition-all duration-200 pointer-events-none',
+          'absolute rounded-l-full transition-all duration-200 pointer-events-none',
           isHovering || isPanelVisible
             ? 'bg-primary/50 shadow-glow'
             : 'bg-primary/30',
         )}
         style={{
+          right: '16px',
           width: isHovering || isPanelVisible ? PROGRESS_BAR_HOVER_WIDTH : PROGRESS_BAR_WIDTH,
           top: TRIGGER_AREA_TOP,
           bottom: TRIGGER_AREA_BOTTOM,
@@ -211,12 +213,13 @@ export function ChatNavigator({
       {/* 当前位置指示器 - 映射到 30-70% 范围 */}
       <div
         className={clsx(
-          'absolute right-0 bg-primary rounded-full shadow-glow transition-all duration-200 pointer-events-none',
+          'absolute bg-primary rounded-full shadow-glow transition-all duration-200 pointer-events-none',
           isHovering || isPanelVisible
             ? 'w-3 h-3 bg-primary'
             : 'w-2.5 h-2.5 bg-primary/80',
         )}
         style={{
+          right: '16px',
           top: `${currentPositionPercent}%`,
           transform: 'translate(50%, -50%)'
         }}
@@ -228,7 +231,7 @@ export function ChatNavigator({
           className={clsx(
             'absolute w-56 bg-background-elevated/95 backdrop-blur-sm',
             'border border-border rounded-lg shadow-lg shadow-primary/10',
-            'overflow-hidden transition-all duration-150',
+            'overflow-hidden animate-in fade-in zoom-in-95 duration-150',
             'pointer-events-auto'
           )}
           style={panelStyle}
@@ -247,7 +250,7 @@ export function ChatNavigator({
           </div>
 
           {/* 对话轮次列表 */}
-          <div className="overflow-y-auto" style={{ maxHeight: 'calc(40vh - 100px)' }}>
+          <div className="overflow-y-auto chat-navigator-list" style={{ maxHeight: 'calc(40vh - 100px)' }}>
             {rounds.map((round, idx) => (
               <div
                 key={round.roundIndex}
