@@ -6,6 +6,9 @@
  * - 工具调用穿插在文本中间显示
  * - 支持流式更新内容块
  * - TodoWrite 专用渲染
+ * - Grep 关键词高亮
+ * - Bash ANSI 码清理
+ * - Edit 工具优化显示
  */
 
 import { useMemo, memo, useState } from 'react';
@@ -17,8 +20,17 @@ import { useEventChatStore } from '../../stores';
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { getToolConfig, extractToolKeyInfo } from '../../utils/toolConfig';
-import { formatDuration, calculateDuration, generateOutputSummary } from '../../utils/toolSummary';
-import { Check, XCircle, Loader2, AlertTriangle, Play, ChevronDown, ChevronRight, Circle } from 'lucide-react';
+import {
+  formatDuration,
+  calculateDuration,
+  generateOutputSummary,
+  parseGrepMatches,
+  stripAnsiCodes,
+  escapeRegExp,
+  type GrepMatch,
+  type GrepOutputData
+} from '../../utils/toolSummary';
+import { Check, XCircle, Loader2, AlertTriangle, Play, ChevronDown, ChevronRight, Circle, FileSearch } from 'lucide-react';
 
 // 配置 marked
 marked.setOptions({
@@ -31,7 +43,7 @@ function formatContent(content: string): string {
   try {
     const raw = marked.parse(content) as string;
     return DOMPurify.sanitize(raw, {
-      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'span', 'div'],
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'span', 'div', 'mark'],
       ALLOWED_ATTR: ['class', 'href', 'target', 'rel'],
     });
   } catch {
@@ -81,6 +93,100 @@ const STATUS_CONFIG = {
   partial: { icon: AlertTriangle, className: 'text-orange-500', label: '部分完成' },
 } as const;
 
+// ========================================
+// Grep 输出渲染器
+// ========================================
+
+/**
+ * 高亮文本组件 - 用于 Grep 结果
+ */
+function HighlightedText({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+
+  try {
+    const regex = new RegExp(`(${escapeRegExp(query)})`, 'gi');
+    const parts = text.split(regex);
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          regex.test(part) ? (
+            <mark key={i} className="bg-yellow-500/30 text-text-primary px-0.5 rounded font-medium">
+              {part}
+            </mark>
+          ) : (
+            <span key={i}>{part}</span>
+          )
+        )}
+      </>
+    );
+  } catch {
+    return <>{text}</>;
+  }
+}
+
+/**
+ * Grep 匹配项组件
+ */
+const GrepMatchItem = memo(function GrepMatchItem({
+  match,
+  query
+}: {
+  match: GrepMatch;
+  query: string;
+}) {
+  return (
+    <div className="flex items-start gap-2 py-1.5 px-2 rounded bg-background-surface hover:bg-background-hover transition-colors">
+      {/* 文件名 */}
+      {match.file && (
+        <div className="text-xs text-primary font-mono shrink-0">
+          {match.file.split('/').pop() || match.file}
+        </div>
+      )}
+      {/* 行号 */}
+      {match.line > 0 && (
+        <div className="text-xs text-text-muted font-mono shrink-0 w-8">
+          :{match.line}
+        </div>
+      )}
+      {/* 内容 */}
+      <div className="flex-1 text-xs text-text-secondary font-mono break-all">
+        <HighlightedText text={match.content} query={query} />
+      </div>
+    </div>
+  );
+});
+
+/**
+ * Grep 输出渲染器
+ */
+const GrepOutputRenderer = memo(function GrepOutputRenderer({
+  data
+}: {
+  data: GrepOutputData;
+}) {
+  return (
+    <div className="space-y-2">
+      {/* 匹配项列表 */}
+      <div className="space-y-0.5">
+        {data.matches.slice(0, 20).map((match, idx) => (
+          <GrepMatchItem key={idx} match={match} query={data.query} />
+        ))}
+      </div>
+      {/* 超过20个提示 */}
+      {data.total > 20 && (
+        <div className="text-xs text-text-tertiary text-center py-1">
+          ...还有 {data.total - 20} 个匹配项
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ========================================
+// TodoWrite 渲染器
+// ========================================
+
 /**
  * TodoWrite 相关类型定义
  */
@@ -103,6 +209,13 @@ interface TodoInputData {
  */
 function isTodoWriteTool(block: ToolCallBlock): boolean {
   return block.name.toLowerCase() === 'todowrite';
+}
+
+/**
+ * 判断是否为 Grep 工具
+ */
+function isGrepTool(block: ToolCallBlock): boolean {
+  return block.name.toLowerCase().includes('grep');
 }
 
 /**
@@ -210,6 +323,10 @@ function getTodoStatusIcon(status: TodoItem['status']): React.ReactElement {
   );
 }
 
+// ========================================
+// 工具调用块渲染器
+// ========================================
+
 /** 工具调用块组件 - 优化版本 */
 const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { block: ToolCallBlock }) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -235,15 +352,23 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
   // 生成输出摘要
   const outputSummary = useMemo(() => {
     if (block.status === 'completed' && block.output) {
-      return generateOutputSummary(block.name, block.output, block.status);
+      return generateOutputSummary(block.name, block.output, block.status, block.input);
     }
     return null;
-  }, [block.name, block.output, block.status]);
+  }, [block.name, block.output, block.status, block.input]);
 
   // 解析 TodoWrite 数据
   const todoData = useMemo(() => {
     if (isTodoWriteTool(block)) {
       return parseTodoInput(block.input);
+    }
+    return null;
+  }, [block]);
+
+  // 解析 Grep 数据
+  const grepData = useMemo(() => {
+    if (isGrepTool(block) && block.output) {
+      return parseGrepMatches(block.output, block.input);
     }
     return null;
   }, [block]);
@@ -267,6 +392,9 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
   const hasError = block.status === 'failed' && block.error;
   const canExpand = hasInput || hasOutput || hasError;
 
+  // 是否使用专用输出渲染器
+  const useCustomRenderer = grepData !== null;
+
   // 状态动画类
   const statusAnimationClass = useMemo(() => {
     switch (block.status) {
@@ -284,6 +412,20 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
         return '';
     }
   }, [block.status]);
+
+  // Bash 工具需要清理 ANSI 码
+  const displayOutput = useMemo(() => {
+    if (!block.output) return '';
+    const normalizedToolName = block.name.toLowerCase();
+    if (
+      normalizedToolName.includes('bash') ||
+      normalizedToolName.includes('command') ||
+      normalizedToolName.includes('execute')
+    ) {
+      return stripAnsiCodes(block.output);
+    }
+    return block.output;
+  }, [block.name, block.output]);
 
   return (
     <div
@@ -324,7 +466,14 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
           {/* 输出摘要（折叠时显示） */}
           {!isExpanded && outputSummary && (
             <div className="text-xs text-text-tertiary mt-0.5 flex items-center gap-1">
-              <span>{outputSummary.summary}</span>
+              {isGrepTool(block) && grepData ? (
+                <>
+                  <FileSearch className="w-3 h-3 shrink-0" />
+                  <span>{outputSummary.summary}</span>
+                </>
+              ) : (
+                <span>{outputSummary.summary}</span>
+              )}
               {(outputSummary.expandable || outputNeedsExpand) && (
                 <ChevronRight className="w-3 h-3 shrink-0" />
               )}
@@ -408,7 +557,7 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 输出结果
-                {outputNeedsExpand && (
+                {outputNeedsExpand && !useCustomRenderer && (
                   <button
                     onClick={() => setShowFullOutput(!showFullOutput)}
                     className="ml-auto text-primary hover:text-primary-hover text-xs"
@@ -417,16 +566,20 @@ const ToolCallBlockRenderer = memo(function ToolCallBlockRenderer({ block }: { b
                   </button>
                 )}
               </div>
-              <pre className={clsx(
-                'text-xs text-text-secondary bg-background-surface rounded p-2.5 overflow-x-auto font-mono',
-                showFullOutput ? 'max-h-96 overflow-y-auto' : 'max-h-48 overflow-y-auto'
-              )}>
-                {showFullOutput
-                  ? (block.output ?? '')
-                  : ((block.output ?? '').length > 1000
-                    ? (block.output ?? '').slice(0, 1000) + '\n... (内容过长，已截断，点击"展开全部"查看)'
-                    : (block.output ?? ''))}
-              </pre>
+              {useCustomRenderer && grepData ? (
+                <GrepOutputRenderer data={grepData} />
+              ) : (
+                <pre className={clsx(
+                  'text-xs text-text-secondary bg-background-surface rounded p-2.5 overflow-x-auto font-mono',
+                  showFullOutput ? 'max-h-96 overflow-y-auto' : 'max-h-48 overflow-y-auto'
+                )}>
+                  {showFullOutput
+                    ? displayOutput
+                    : (displayOutput.length > 1000
+                      ? displayOutput.slice(0, 1000) + '\n... (内容过长，已截断，点击"展开全部"查看)'
+                      : displayOutput)}
+                </pre>
+              )}
             </div>
           )}
 

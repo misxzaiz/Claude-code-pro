@@ -2,6 +2,7 @@
  * 工具调用智能摘要生成工具
  *
  * 将技术性的工具调用转换为用户友好的描述
+ * 支持 Bash、Grep、Edit 等工具的专用解析
  */
 
 import type { ToolStatus } from '../types';
@@ -94,7 +95,7 @@ function extractCommand(input?: Record<string, unknown>): string | null {
 function extractSearchQuery(input?: Record<string, unknown>): string | null {
   if (!input) return null;
 
-  const queryKeys = ['query', 'q', 'search', 'keyword', 'pattern'];
+  const queryKeys = ['query', 'q', 'search', 'keyword', 'pattern', 'regex'];
   for (const key of queryKeys) {
     const value = input[key];
     if (typeof value === 'string') {
@@ -269,6 +270,20 @@ export function calculateDuration(startedAt: string, completedAt?: string): numb
   return end - start;
 }
 
+// ========================================
+// 输出摘要优化
+// ========================================
+
+/**
+ * 清理 ANSI 转义码
+ * 用于清理 npm/yarn 等工具输出的颜色代码
+ */
+export function stripAnsiCodes(text: string): string {
+  // ANSI 转义码格式: \x1b[XXm 或 \033[XXm
+  const ansiRegex = /\x1b\[[0-9;]*m/g;
+  return text.replace(ansiRegex, '');
+}
+
 /**
  * 输出摘要类型
  */
@@ -294,7 +309,64 @@ export interface OutputSummary {
 }
 
 /**
- * 解析 Grep 输出
+ * Grep 匹配项
+ */
+export interface GrepMatch {
+  file: string;
+  line: number;
+  content: string;
+}
+
+/**
+ * Grep 详细解析结果
+ */
+export interface GrepOutputData {
+  matches: GrepMatch[];
+  query: string;
+  total: number;
+}
+
+/**
+ * 解析 Grep 输出 - 结构化
+ */
+export function parseGrepMatches(output: string, input?: Record<string, unknown>): GrepOutputData | null {
+  const lines = output.trim().split('\n');
+  const matches: GrepMatch[] = [];
+  const query = extractSearchQuery(input) || '';
+
+  for (const line of lines) {
+    if (!line.trim()) continue;
+
+    // 支持多种格式：
+    // - "file:line:content"
+    // - "file:line:column:content" (带列号)
+    const match = line.match(/^([^:]+):(\d+)(?::(\d+))?:?(.*)$/);
+    if (match) {
+      const [, file, lineNum, , content] = match;
+      if (content.trim()) {
+        matches.push({
+          file,
+          line: parseInt(lineNum, 10),
+          content: content.trim(),
+        });
+      }
+    } else {
+      // 不匹配标准格式，作为普通行处理
+      matches.push({
+        file: '',
+        line: 0,
+        content: line.trim(),
+      });
+    }
+  }
+
+  if (matches.length === 0) return null;
+
+  return { matches, query, total: matches.length };
+}
+
+/**
+ * 解析 Grep 输出 - 摘要版本
  */
 function parseGrepOutput(output: string): OutputSummary | null {
   const lines = output.trim().split('\n');
@@ -330,32 +402,88 @@ function parseGlobOutput(output: string): OutputSummary | null {
 }
 
 /**
- * 解析 Bash 输出
+ * 错误关键词列表
+ */
+const ERROR_KEYWORDS = [
+  'error:', 'error ', 'Error:', 'Error ', 'ERROR:',
+  'fail', 'Fail', 'FAIL', 'failed', 'Failed', 'FAILED',
+  'exception', 'Exception', 'EXCEPTION',
+  'cannot', 'Cannot', 'CANNOT',
+  'unable', 'Unable', 'UNABLE',
+  'denied', 'Denied', 'DENIED',
+  'not found', 'Not Found', 'NOT FOUND',
+  'no such', 'No such', 'NO SUCH',
+  '错误', '失败', '异常', '无法', '不存在',
+];
+
+/**
+ * 解析 Bash 输出 - 优化版
+ * - 清理 ANSI 转义码
+ * - 优先显示错误行
+ * - 检测退出码
  */
 function parseBashOutput(output: string): OutputSummary | null {
   if (!output.trim()) {
     return { type: 'exitStatus', summary: '命令已执行' };
   }
 
-  const lines = output.trim().split('\n');
-  const firstLine = lines[0]?.trim() || '';
+  // 清理 ANSI 转义码
+  const cleanOutput = stripAnsiCodes(output);
+  const lines = cleanOutput.trim().split('\n').filter(l => l.trim());
 
-  // 检测是否有错误
-  const hasError = /error|fail|错|败/i.test(output);
-  if (hasError) {
+  if (lines.length === 0) {
+    return { type: 'exitStatus', summary: '命令已执行（无输出）' };
+  }
+
+  // 1. 优先查找包含错误关键词的行
+  const errorLine = lines.find(line =>
+    ERROR_KEYWORDS.some(kw =>
+      line.toLowerCase().includes(kw.toLowerCase())
+    )
+  );
+
+  if (errorLine) {
+    const cleanError = errorLine.trim().slice(0, 50);
     return {
       type: 'exitStatus',
-      summary: `执行出错: ${firstLine.slice(0, 30)}${firstLine.length > 30 ? '...' : ''}`,
-      fullOutput: output,
+      summary: `错误: ${cleanError}${errorLine.length > 50 ? '...' : ''}`,
+      fullOutput: cleanOutput,
       expandable: true,
     };
   }
 
+  // 2. 检测退出码（某些工具会输出 "exit code: X"）
+  const exitCodeMatch = cleanOutput.match(/exit\s+code:\s*(\d+)/i);
+  if (exitCodeMatch) {
+    const code = parseInt(exitCodeMatch[1], 10);
+    if (code !== 0) {
+      return {
+        type: 'exitStatus',
+        summary: `退出码 ${code}`,
+        fullOutput: cleanOutput,
+        expandable: true,
+      };
+    }
+  }
+
+  // 3. 检测 npm/yarn 错误
+  const npmErrorMatch = cleanOutput.match(/npm\s+err!\s+(.+)/i);
+  if (npmErrorMatch) {
+    return {
+      type: 'exitStatus',
+      summary: `npm: ${npmErrorMatch[1].trim().slice(0, 40)}...`,
+      fullOutput: cleanOutput,
+      expandable: true,
+    };
+  }
+
+  // 4. 无错误，显示首行
+  const firstLine = lines[0].trim();
   return {
     type: 'exitStatus',
-    summary: firstLine.slice(0, 40) + (firstLine.length > 40 ? '...' : ''),
-    fullOutput: output,
-    expandable: output.includes('\n'),
+    summary: firstLine.slice(0, 50) + (firstLine.length > 50 ? '...' : ''),
+    fullOutput: cleanOutput,
+    expandable: lines.length > 1,
   };
 }
 
@@ -422,12 +550,47 @@ function parseWriteOutput(output: string): OutputSummary | null {
 }
 
 /**
+ * 解析 Edit/str_replace_editor 输出
+ */
+function parseEditOutput(output: string, input?: Record<string, unknown>): OutputSummary | null {
+  const filePath = input?.path as string || '';
+  const fileName = filePath.split('/').pop() || '';
+
+  // 成功情况
+  if (output.toLowerCase().includes('success') ||
+      output.toLowerCase().includes('edited') ||
+      output.toLowerCase().includes('updated') ||
+      output.toLowerCase().includes('complete')) {
+    return {
+      type: 'diffSummary',
+      summary: fileName ? `${fileName} 已修改` : '修改成功',
+      fullOutput: output,
+    };
+  }
+
+  // 失败情况
+  if (output.toLowerCase().includes('fail') ||
+      output.toLowerCase().includes('error')) {
+    return {
+      type: 'diffSummary',
+      summary: fileName ? `${fileName} 修改失败` : '修改失败',
+      fullOutput: output,
+      expandable: true,
+    };
+  }
+
+  // 默认
+  return null;
+}
+
+/**
  * 生成输出智能摘要
  */
 export function generateOutputSummary(
   toolName: string,
   output: string,
-  status: ToolStatus = 'completed'
+  status: ToolStatus = 'completed',
+  input?: Record<string, unknown>
 ): OutputSummary | null {
   if (!output || status === 'running' || status === 'pending') {
     return null;
@@ -450,6 +613,14 @@ export function generateOutputSummary(
     normalizedToolName.includes('execute')
   ) {
     return parseBashOutput(output);
+  }
+
+  if (
+    normalizedToolName.includes('edit') ||
+    normalizedToolName.includes('str_replace')
+  ) {
+    const editResult = parseEditOutput(output, input);
+    if (editResult) return editResult;
   }
 
   if (normalizedToolName.includes('search') || normalizedToolName.includes('web_search')) {
@@ -476,4 +647,11 @@ export function generateOutputSummary(
     fullOutput: output,
     expandable: output.length > 50,
   };
+}
+
+/**
+ * 转义正则表达式特殊字符
+ */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
