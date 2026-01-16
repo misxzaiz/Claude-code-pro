@@ -12,7 +12,7 @@ import { bootstrapEngines } from './core/engine-bootstrap';
 import './index.css';
 
 function App() {
-  const { healthStatus, isConnecting, connectionState, loadConfig, refreshHealth } = useConfigStore();
+  const { healthStatus, isConnecting, connectionState, loadConfig } = useConfigStore();
   const {
     isStreaming,
     sendMessage,
@@ -50,11 +50,15 @@ function App() {
     if (isInitialized.current) return;
 
     const initializeApp = async () => {
-      // 初始化 AI Engine Registry
-      await bootstrapEngines();
-
+      // 先加载配置，获取默认引擎
       await loadConfig();
-      refreshHealth();
+
+      // 获取默认引擎 ID
+      const config = useConfigStore.getState().config;
+      const defaultEngine = config?.defaultEngine || 'claude-code';
+
+      // 按需初始化 AI Engine Registry，只加载默认引擎
+      await bootstrapEngines(defaultEngine);
 
       // 尝试从本地存储恢复聊天状态
       const restored = restoreFromStorage();
