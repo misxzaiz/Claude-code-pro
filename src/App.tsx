@@ -33,9 +33,6 @@ function App() {
   const isInitialized = useRef(false);
   const hasCheckedWorkspaces = useRef(false);
   const mouseLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const prevMessagesLengthRef = useRef(0);
-  // 已发送的消息 ID 集合 - 防止重复发送事件
-  const sentMessageIdsRef = useRef(new Set<string>());
   const {
     showSidebar,
     showEditor,
@@ -213,6 +210,15 @@ function App() {
     // 使用具体值作为依赖，避免对象引用变化导致重复执行
   }, [config?.floatingWindow?.enabled, config?.floatingWindow?.mode, config?.floatingWindow?.collapseDelay]);
 
+  // 跨窗口数据同步 - 同步消息到 localStorage（供悬浮窗读取）
+  useEffect(() => {
+    // 将完整消息同步到 localStorage
+    localStorage.setItem('chat_messages_sync', JSON.stringify(messages));
+
+    // 同步流式状态
+    localStorage.setItem('chat_is_streaming', JSON.stringify(isStreaming));
+  }, [messages, isStreaming]);
+
   // 跨窗口数据同步 - 监听悬浮窗发送的消息
   useEffect(() => {
     const unlistenPromise = listen('floating:send_message', async (event: any) => {
@@ -225,77 +231,16 @@ function App() {
     };
   }, [sendMessage]);
 
-  // 跨窗口数据同步 - 将消息变化通知悬浮窗
+  // 跨窗口数据同步 - 监听悬浮窗的中断请求
   useEffect(() => {
-    // 总是更新 localStorage，确保悬浮窗可以读取最新消息
-    const messagePreview = messages.map(msg => {
-      let content = ''
-      if (msg.type === 'user') {
-        content = msg.content
-      } else if (msg.type === 'assistant' && 'blocks' in msg) {
-        content = msg.blocks.map((b: any) =>
-          b.type === 'text' ? b.content : `[${b.name || 'tool'}]`
-        ).join(' ')
-      } else if (msg.type === 'system') {
-        content = (msg as any).content || ''
-      } else if (msg.type === 'tool') {
-        content = (msg as any).summary || ''
-      } else if (msg.type === 'tool_group') {
-        content = (msg as any).summary || ''
-      } else {
-        content = ''
-      }
-      return {
-        id: msg.id,
-        type: msg.type,
-        content,
-        timestamp: msg.timestamp,
-      }
-    })
-    localStorage.setItem('chat_messages_preview', JSON.stringify(messagePreview))
+    const unlistenPromise = listen('floating:interrupt_chat', async () => {
+      interruptChat();
+    });
 
-    // 检查是否有新消息（消息数量增加）
-    const currentLength = messages.length
-    if (currentLength > prevMessagesLengthRef.current) {
-      // 有新消息，找出新增的消息并发送事件
-      const newMessages = messages.slice(prevMessagesLengthRef.current)
-
-      for (const msg of newMessages) {
-        // 检查是否已经发送过这条消息（防止重复）
-        if (!sentMessageIdsRef.current.has(msg.id)) {
-          let content = ''
-          if (msg.type === 'user') {
-            content = msg.content
-          } else if (msg.type === 'assistant' && 'blocks' in msg) {
-            content = msg.blocks.map((b: any) =>
-              b.type === 'text' ? b.content : `[${b.name || 'tool'}]`
-            ).join(' ')
-          } else if (msg.type === 'system') {
-            content = (msg as any).content || ''
-          } else if (msg.type === 'tool') {
-            content = (msg as any).summary || ''
-          } else if (msg.type === 'tool_group') {
-            content = (msg as any).summary || ''
-          } else {
-            content = ''
-          }
-
-          // 标记为已发送
-          sentMessageIdsRef.current.add(msg.id)
-          console.log('[App] 发送 chat:new-message 事件:', { id: msg.id, type: msg.type, content })
-          emit('chat:new-message', {
-            id: msg.id,
-            type: msg.type,
-            content,
-            timestamp: msg.timestamp,
-          })
-        }
-      }
-
-      // 更新记录
-      prevMessagesLengthRef.current = currentLength
-    }
-  }, [messages])
+    return () => {
+      unlistenPromise.then(unlisten => unlisten());
+    };
+  }, [interruptChat]);
 
   // 跨窗口数据同步 - 同步流式状态
   useEffect(() => {

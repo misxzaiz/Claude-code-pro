@@ -32,6 +32,7 @@
   /* 启用拖拽区域 */
   -webkit-app-region: drag;
   app-region: drag;
+  flex-shrink: 0;
 }
 
 .floating-title {
@@ -73,14 +74,107 @@
   color: #e0e0e0;
 }
 
-/* 消息预览区域 */
+/* 消息区域 - 使用 EnhancedChatMessages */
 .floating-messages {
   flex: 1;
-  padding: 12px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* 自定义滚动条样式 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.floating-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.floating-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.floating-messages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.floating-messages::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.floating-messages-content {
+  padding: 8px;
+}
+
+/* 悬浮窗消息样式 */
+.floating-user-message,
+.floating-assistant-message,
+.floating-system-message {
+  margin-bottom: 12px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.floating-user-message {
+  background: rgba(124, 58, 237, 0.1);
+}
+
+.floating-assistant-message {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.floating-system-message {
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.7;
+}
+
+.floating-message-sender {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #808080;
+  margin-bottom: 4px;
+}
+
+.floating-user-message .floating-message-sender {
+  color: #a78bfa;
+}
+
+.floating-message-content {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e0e0e0;
+  word-wrap: break-word;
+  word-break: break-word;
+}
+
+.floating-message-content div {
+  margin-bottom: 4px;
+}
+
+.floating-message-content div:last-child {
+  margin-bottom: 0;
+}
+
+.floating-tool-call {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  font-size: 11px;
+  margin: 4px 0;
+}
+
+.floating-tool-call .tool-name {
+  color: #7c3aed;
+  font-weight: 500;
+}
+
+.floating-tool-call .tool-status {
+  color: #808080;
+  font-size: 10px;
 }
 
 .floating-empty {
@@ -90,60 +184,7 @@
   height: 100%;
   color: #505050;
   font-size: 13px;
-}
-
-.floating-message {
-  display: flex;
-  gap: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.message-sender {
-  color: #808080;
-  flex-shrink: 0;
-}
-
-.message-content {
-  color: #b0b0b0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.floating-message.user .message-content {
-  color: #a0a0c0;
-}
-
-.floating-message.assistant .message-content {
-  color: #b0b0b0;
-}
-
-/* 流式指示器 */
-.floating-streaming-indicator {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  color: #7c3aed;
-}
-
-.streaming-dot {
-  width: 6px;
-  height: 6px;
-  background: #7c3aed;
-  border-radius: 50%;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.3;
-  }
+  padding: 12px;
 }
 
 /* 输入区域 */
@@ -154,6 +195,7 @@
   padding: 8px 12px;
   background: rgba(0, 0, 0, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .floating-input {
@@ -184,7 +226,8 @@
   cursor: not-allowed;
 }
 
-.floating-send-btn {
+.floating-send-btn,
+.floating-interrupt-btn {
   width: 28px;
   height: 28px;
   display: flex;
@@ -207,6 +250,18 @@
 
 .floating-send-btn.active:hover {
   background: #7c3aed;
+}
+
+.floating-interrupt-btn {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  cursor: pointer;
+}
+
+.floating-interrupt-btn:hover {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .floating-send-btn:disabled {

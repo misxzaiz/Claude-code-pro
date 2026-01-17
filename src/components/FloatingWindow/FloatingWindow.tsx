@@ -2,23 +2,23 @@
  * 悬浮窗组件
  *
  * 功能：
- * - 显示最后两条消息预览
+ * - 显示 AI 对话消息（从 localStorage 读取）
  * - 提供输入框发送消息
  * - 点击展开按钮切换到主窗口
  * - 可拖拽移动窗口
  * - 支持鼠标移入自动展开
+ *
+ * 数据同步：
+ * - 通过 localStorage 从主窗口读取消息
+ * - 通过 storage 事件监听消息变化
+ * - 通过 Tauri 事件发送消息到主窗口
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import type { ChatMessage } from '../../types'
 import './FloatingWindow.css'
-
-// 截断文本到指定长度
-function truncateText(text: string, maxLength: number): string {
-  if (text.length <= maxLength) return text
-  return text.slice(0, maxLength) + '...'
-}
 
 // 悬浮窗配置类型
 interface FloatingWindowConfig {
@@ -28,7 +28,7 @@ interface FloatingWindowConfig {
 }
 
 export function FloatingWindow() {
-  const [messages, setMessages] = useState<Array<{ id: string; type: string; content: string; timestamp: string }>>([])
+  const [messages, setMessages] = useState<ChatMessage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const [input, setInput] = useState('')
   const [config, setConfig] = useState<FloatingWindowConfig>({
@@ -36,11 +36,15 @@ export function FloatingWindow() {
     mode: 'auto',
     expandOnHover: true,
   })
-  // 用于跟踪已存在的消息 ID，防止重复
-  const messageIdsRef = useRef(new Set<string>())
+  const messagesEndRef = useRef<HTMLDivElement>(null)
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 从 localStorage 加载配置
+  // 自动滚动到底部
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // 从 localStorage 加载配置和消息
   useEffect(() => {
     const loadConfig = () => {
       try {
@@ -56,91 +60,66 @@ export function FloatingWindow() {
       }
     }
 
-    loadConfig()
-
-    // 监听配置变化事件
-    const unlistenPromise = listen('config:updated', loadConfig)
-
-    return () => {
-      unlistenPromise.then(unlisten => unlisten())
-    }
-  }, [])
-
-  // 监听主窗口的消息更新
-  useEffect(() => {
-    // 初始化：从 localStorage 读取最新消息
-    const loadInitialMessages = () => {
+    const loadMessages = () => {
       try {
-        const stored = localStorage.getItem('chat_messages_preview')
+        const stored = localStorage.getItem('chat_messages_sync')
         if (stored) {
-          const data = JSON.parse(stored)
-          console.log('[FloatingWindow] 从 localStorage 加载消息:', data)
-          // 取最后 2 条
-          const lastTwo = data.slice(-2)
-          setMessages(lastTwo)
-          // 记录已存在的消息 ID
-          messageIdsRef.current = new Set(lastTwo.map((m: any) => m.id))
+          const parsedMessages = JSON.parse(stored) as ChatMessage[]
+          setMessages(parsedMessages)
         }
       } catch (e) {
         console.error('[FloatingWindow] 加载消息失败:', e)
       }
     }
 
-    loadInitialMessages()
-
-    // 监听新消息事件
-    const unlistenPromise = listen('chat:new-message', (event: any) => {
-      const message = event.payload
-      console.log('[FloatingWindow] 收到 chat:new-message 事件:', message)
-
-      setMessages(prev => {
-        // 检查消息是否已存在，防止重复添加
-        if (messageIdsRef.current.has(message.id)) {
-          console.log('[FloatingWindow] 消息已存在，跳过:', message.id)
-          return prev
-        }
-
-        // 添加新消息 ID 到集合
-        messageIdsRef.current.add(message.id)
-
-        // 添加新消息，只保留最后 2 条
-        const newMessages = [...prev, message]
-        const result = newMessages.slice(-2)
-        console.log('[FloatingWindow] 更新消息列表:', result)
-        return result
-      })
-    })
-
-    // 监听流式状态变化
-    const streamingUnlisten = listen('chat:streaming_changed', (event: any) => {
-      setIsStreaming(event.payload.isStreaming)
-    })
-
-    // 定期轮询 localStorage 作为备份（处理跨窗口事件可能丢失的情况）
-    const pollInterval = setInterval(() => {
+    const loadStreaming = () => {
       try {
-        const stored = localStorage.getItem('chat_messages_preview')
+        const stored = localStorage.getItem('chat_is_streaming')
         if (stored) {
-          const data = JSON.parse(stored)
-          const lastTwo = data.slice(-2)
-          // 检查是否有新消息
-          const hasNewMessage = lastTwo.some((m: any) => !messageIdsRef.current.has(m.id))
-          if (hasNewMessage) {
-            console.log('[FloatingWindow] 轮询发现新消息，更新列表')
-            // 更新消息 ID 集合
-            messageIdsRef.current = new Set(lastTwo.map((m: any) => m.id))
-            setMessages(lastTwo)
-          }
+          setIsStreaming(JSON.parse(stored))
         }
       } catch (e) {
-        console.error('[FloatingWindow] 轮询消息失败:', e)
+        console.error('[FloatingWindow] 加载流式状态失败:', e)
       }
-    }, 500) // 每 500ms 轮询一次
+    }
+
+    loadConfig()
+    loadMessages()
+    loadStreaming()
+
+    // 监听配置变化事件
+    const unlistenConfigPromise = listen('config:updated', loadConfig)
 
     return () => {
-      unlistenPromise.then(unlisten => unlisten())
-      streamingUnlisten.then(unlisten => unlisten())
-      clearInterval(pollInterval)
+      unlistenConfigPromise.then(unlisten => unlisten())
+    }
+  }, [])
+
+  // 监听 storage 事件 - 实时同步主窗口的消息变化
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'chat_messages_sync' && e.newValue) {
+        try {
+          const parsedMessages = JSON.parse(e.newValue) as ChatMessage[]
+          setMessages(parsedMessages)
+          console.log('[FloatingWindow] 收到消息更新:', parsedMessages.length)
+        } catch (e) {
+          console.error('[FloatingWindow] 解析消息失败:', e)
+        }
+      }
+      if (e.key === 'chat_is_streaming' && e.newValue) {
+        try {
+          setIsStreaming(JSON.parse(e.newValue))
+        } catch (e) {
+          console.error('[FloatingWindow] 解析流式状态失败:', e)
+        }
+      }
+    }
+
+    window.addEventListener('storage', handleStorageChange)
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange)
     }
   }, [])
 
@@ -174,12 +153,12 @@ export function FloatingWindow() {
     }
   }, [config.expandOnHover])
 
-  // 发送消息
+  // 发送消息 - 通过 Tauri 事件发送到主窗口
   const handleSend = useCallback(async () => {
     const trimmed = input.trim()
     if (!trimmed || isStreaming) return
 
-    // 使用 Tauri 事件发送到主窗口
+    // 通过 Tauri 事件发送到主窗口
     const { emit } = await import('@tauri-apps/api/event')
     emit('floating:send_message', { message: trimmed })
 
@@ -199,8 +178,11 @@ export function FloatingWindow() {
     }
   }, [handleSend])
 
-  // 获取最后两条消息用于显示
-  const displayMessages = messages.slice(-2)
+  // 中断生成 - 通过 Tauri 事件发送到主窗口
+  const handleInterrupt = useCallback(async () => {
+    const { emit } = await import('@tauri-apps/api/event')
+    emit('floating:interrupt_chat', {})
+  }, [])
 
   return (
     <div className="floating-window">
@@ -224,30 +206,50 @@ export function FloatingWindow() {
         </button>
       </div>
 
-      {/* 消息预览区域 */}
+      {/* 消息区域 */}
       <div className="floating-messages">
-        {displayMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="floating-empty">
-            <span>暂无消息</span>
+            <span>开始对话吧~</span>
           </div>
         ) : (
-          displayMessages.map(msg => (
-            <div key={msg.id} className={`floating-message ${msg.type}`}>
-              <span className="message-sender">
-                {msg.type === 'user' ? '你' : 'AI'}
-              </span>
-              <span className="message-content">
-                {truncateText(msg.content, 50)}
-              </span>
-            </div>
-          ))
-        )}
-        {isStreaming && (
-          <div className="floating-streaming-indicator">
-            <span className="streaming-dot"></span>
-            <span>正在回复...</span>
+          <div className="floating-messages-content">
+            {messages.map((msg) => (
+              <div key={msg.id} className={`floating-message-${msg.type}`}>
+                {msg.type === 'user' ? (
+                  <div className="floating-user-message">
+                    <span className="floating-message-sender">你</span>
+                    <span className="floating-message-content">{msg.content}</span>
+                  </div>
+                ) : msg.type === 'assistant' && 'blocks' in msg ? (
+                  <div className="floating-assistant-message">
+                    <span className="floating-message-sender">AI</span>
+                    <div className="floating-message-content">
+                      {msg.blocks.map((block, idx) => {
+                        if (block.type === 'text') {
+                          return <div key={idx} dangerouslySetInnerHTML={{ __html: block.content }} />
+                        } else if (block.type === 'tool_call') {
+                          return (
+                            <div key={idx} className="floating-tool-call">
+                              <span className="tool-name">{block.name}</span>
+                              <span className="tool-status">{block.status || 'running'}</span>
+                            </div>
+                          )
+                        }
+                        return null
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="floating-system-message">
+                    <span className="floating-message-content">{(msg as any).content || '系统消息'}</span>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         )}
+        <div ref={messagesEndRef} />
       </div>
 
       {/* 输入区域 */}
@@ -261,17 +263,29 @@ export function FloatingWindow() {
           placeholder="输入消息..."
           disabled={isStreaming}
         />
-        <button
-          className={`floating-send-btn ${input.trim() ? 'active' : ''}`}
-          onClick={handleSend}
-          disabled={!input.trim() || isStreaming}
-          title="发送"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
-          </svg>
-        </button>
+        {isStreaming ? (
+          <button
+            className="floating-interrupt-btn"
+            onClick={handleInterrupt}
+            title="停止生成"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="6" y="6" width="12" height="12" />
+            </svg>
+          </button>
+        ) : (
+          <button
+            className={`floating-send-btn ${input.trim() ? 'active' : ''}`}
+            onClick={handleSend}
+            disabled={!input.trim()}
+            title="发送"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="22" y1="2" x2="11" y2="13" />
+              <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   )
