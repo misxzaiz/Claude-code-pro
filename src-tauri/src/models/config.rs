@@ -118,6 +118,10 @@ pub struct FloatingWindowConfig {
     /// 鼠标移到悬浮窗时是否自动展开主窗口
     #[serde(default = "default_floating_window_expand_on_hover")]
     pub expand_on_hover: bool,
+
+    /// 鼠标移出主窗口后切换到悬浮窗的延迟时长（毫秒）
+    #[serde(default = "default_floating_window_collapse_delay")]
+    pub collapse_delay: u64,
 }
 
 fn default_floating_window_enabled() -> bool {
@@ -128,12 +132,17 @@ fn default_floating_window_expand_on_hover() -> bool {
     true
 }
 
+fn default_floating_window_collapse_delay() -> u64 {
+    500
+}
+
 impl Default for FloatingWindowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
             mode: FloatingWindowMode::Auto,
             expand_on_hover: true,
+            collapse_delay: 500,
         }
     }
 }

@@ -102,6 +102,14 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
     });
   };
 
+  const handleFloatingWindowCollapseDelayChange = (collapseDelay: number) => {
+    if (!localConfig) return;
+    setLocalConfig({
+      ...localConfig,
+      floatingWindow: { ...localConfig.floatingWindow, collapseDelay }
+    });
+  };
+
   if (!localConfig) {
     return (
       <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -276,7 +284,7 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
               </div>
 
               {/* 移动到悬浮窗时展开 */}
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between mb-4">
                 <div>
                   <div className="text-sm text-text-primary">移动到悬浮窗时展开</div>
                   <div className="text-xs text-text-secondary">鼠标移到悬浮窗时自动展开主窗口</div>
@@ -295,6 +303,34 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
                   />
                 </button>
               </div>
+
+              {/* 自动切换延迟 */}
+              {localConfig.floatingWindow.mode === 'auto' && (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <div className="text-sm text-text-primary">切换延迟</div>
+                      <div className="text-xs text-text-secondary">鼠标移出主窗口后切换到悬浮窗的延迟时长</div>
+                    </div>
+                    <div className="text-sm font-medium text-primary">
+                      {localConfig.floatingWindow.collapseDelay} ms
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min="100"
+                    max="3000"
+                    step="100"
+                    value={localConfig.floatingWindow.collapseDelay}
+                    onChange={(e) => handleFloatingWindowCollapseDelayChange(Number(e.target.value))}
+                    className="w-full h-2 bg-border-subtle rounded-lg appearance-none cursor-pointer accent-primary"
+                  />
+                  <div className="flex justify-between text-xs text-text-tertiary mt-1">
+                    <span>100ms</span>
+                    <span>3000ms</span>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

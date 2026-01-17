@@ -175,11 +175,13 @@ function App() {
       return
     }
 
+    const delay = floatingConfig.collapseDelay || 500
+
     const handleMouseLeave = () => {
       // 延迟后切换到悬浮窗
       mouseLeaveTimerRef.current = setTimeout(() => {
         showFloatingWindow();
-      }, 0);
+      }, delay);
     };
 
     const handleMouseEnter = () => {

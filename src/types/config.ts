@@ -28,6 +28,8 @@ export interface FloatingWindowConfig {
   mode: FloatingWindowMode;
   /** 鼠标移到悬浮窗时是否自动展开主窗口 */
   expandOnHover: boolean;
+  /** 鼠标移出主窗口后切换到悬浮窗的延迟时长（毫秒），默认 500 */
+  collapseDelay: number;
 }
 
 /** 应用配置 */
