@@ -169,13 +169,14 @@ function App() {
   // 鼠标移出检测 - 自动切换到悬浮窗模式
   useEffect(() => {
     const handleMouseLeave = () => {
-      // 延迟 2 秒后切换到悬浮窗，给用户时间移回窗口
+      // TODO @setting 可以改为用户配置方式
+      // 延迟 0 秒后切换到悬浮窗，给用户时间移回窗口
       mouseLeaveTimerRef.current = setTimeout(() => {
         // 只在有聊天消息时才显示悬浮窗
-        if (messages.length > 0) {
+        // if (messages.length > 0) {
           showFloatingWindow();
-        }
-      }, 2000);
+        // }
+      }, 0);
     };
 
     const handleMouseEnter = () => {
