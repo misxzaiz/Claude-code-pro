@@ -74,6 +74,7 @@ export function FloatingWindow() {
         const stored = localStorage.getItem('chat_messages_preview')
         if (stored) {
           const data = JSON.parse(stored)
+          console.log('[FloatingWindow] 从 localStorage 加载消息:', data)
           // 取最后 2 条
           const lastTwo = data.slice(-2)
           setMessages(lastTwo)
@@ -90,10 +91,12 @@ export function FloatingWindow() {
     // 监听新消息事件
     const unlistenPromise = listen('chat:new-message', (event: any) => {
       const message = event.payload
+      console.log('[FloatingWindow] 收到 chat:new-message 事件:', message)
 
       setMessages(prev => {
         // 检查消息是否已存在，防止重复添加
         if (messageIdsRef.current.has(message.id)) {
+          console.log('[FloatingWindow] 消息已存在，跳过:', message.id)
           return prev
         }
 
@@ -102,7 +105,9 @@ export function FloatingWindow() {
 
         // 添加新消息，只保留最后 2 条
         const newMessages = [...prev, message]
-        return newMessages.slice(-2)
+        const result = newMessages.slice(-2)
+        console.log('[FloatingWindow] 更新消息列表:', result)
+        return result
       })
     })
 
@@ -111,9 +116,31 @@ export function FloatingWindow() {
       setIsStreaming(event.payload.isStreaming)
     })
 
+    // 定期轮询 localStorage 作为备份（处理跨窗口事件可能丢失的情况）
+    const pollInterval = setInterval(() => {
+      try {
+        const stored = localStorage.getItem('chat_messages_preview')
+        if (stored) {
+          const data = JSON.parse(stored)
+          const lastTwo = data.slice(-2)
+          // 检查是否有新消息
+          const hasNewMessage = lastTwo.some((m: any) => !messageIdsRef.current.has(m.id))
+          if (hasNewMessage) {
+            console.log('[FloatingWindow] 轮询发现新消息，更新列表')
+            // 更新消息 ID 集合
+            messageIdsRef.current = new Set(lastTwo.map((m: any) => m.id))
+            setMessages(lastTwo)
+          }
+        }
+      } catch (e) {
+        console.error('[FloatingWindow] 轮询消息失败:', e)
+      }
+    }, 500) // 每 500ms 轮询一次
+
     return () => {
       unlistenPromise.then(unlisten => unlisten())
       streamingUnlisten.then(unlisten => unlisten())
+      clearInterval(pollInterval)
     }
   }, [])
 

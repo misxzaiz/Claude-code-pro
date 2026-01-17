@@ -15,7 +15,8 @@ interface TopMenuBarProps {
 }
 
 export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }: TopMenuBarProps) {
-  const { getCurrentWorkspace, config } = useConfigStore();
+  const { config } = useConfigStore();
+  const { getCurrentWorkspace } = useWorkspaceStore();
   const { showFloatingWindow } = useFloatingWindowStore();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);

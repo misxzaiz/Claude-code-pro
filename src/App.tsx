@@ -34,6 +34,10 @@ function App() {
   const hasCheckedWorkspaces = useRef(false);
   const mouseLeaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prevMessagesLengthRef = useRef(0);
+  // 跟踪用户活跃状态 - 用于防止输入时自动切换
+  const isUserActiveRef = useRef(false);
+  // 已发送的消息 ID 集合 - 防止重复发送事件
+  const sentMessageIdsRef = useRef(new Set<string>());
   const {
     showSidebar,
     showEditor,
@@ -178,9 +182,19 @@ function App() {
     const delay = floatingConfig.collapseDelay || 500
 
     const handleMouseLeave = () => {
+      // 检查用户是否正在活跃交互（如输入框有焦点、有打开的模态框等）
+      if (isUserActiveRef.current) {
+        console.log('[App] 用户活跃中，取消自动切换到悬浮窗')
+        return
+      }
+
       // 延迟后切换到悬浮窗
       mouseLeaveTimerRef.current = setTimeout(() => {
-        showFloatingWindow();
+        // 再次检查用户活跃状态，防止延迟期间用户开始输入
+        if (!isUserActiveRef.current) {
+          console.log('[App] 自动切换到悬浮窗')
+          showFloatingWindow();
+        }
       }, delay);
     };
 
@@ -202,7 +216,60 @@ function App() {
         clearTimeout(mouseLeaveTimerRef.current);
       }
     };
-  }, [config?.floatingWindow, showFloatingWindow]);
+    // 使用具体值作为依赖，避免对象引用变化导致重复执行
+  }, [config?.floatingWindow?.enabled, config?.floatingWindow?.mode, config?.floatingWindow?.collapseDelay]);
+
+  // 检测用户活跃状态 - 监听输入框焦点和模态框状态
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      // 检查是否是输入相关元素获得焦点
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        isUserActiveRef.current = true
+        console.log('[App] 用户开始输入，标记为活跃状态')
+      }
+    }
+
+    const handleFocusOut = (e: FocusEvent) => {
+      const target = e.target as HTMLElement
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        // 延迟一段时间后再标记为非活跃，避免切换焦点时误判
+        setTimeout(() => {
+          isUserActiveRef.current = false
+          console.log('[App] 用户停止输入，标记为非活跃状态')
+        }, 300)
+      }
+    }
+
+    // 监听焦点变化
+    document.addEventListener('focusin', handleFocusIn)
+    document.addEventListener('focusout', handleFocusOut)
+
+    // 监听键盘输入作为额外的活跃状态检测
+    const handleKeyDown = () => {
+      // 如果用户在按键，说明正在输入
+      isUserActiveRef.current = true
+      // 清除之前的定时器
+      if ((window as any).userActiveTimer) {
+        clearTimeout((window as any).userActiveTimer)
+      }
+      // 2秒后重置活跃状态
+      ;(window as any).userActiveTimer = setTimeout(() => {
+        isUserActiveRef.current = false
+      }, 2000)
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn)
+      document.removeEventListener('focusout', handleFocusOut)
+      document.removeEventListener('keydown', handleKeyDown)
+      if ((window as any).userActiveTimer) {
+        clearTimeout((window as any).userActiveTimer)
+      }
+    }
+  }, [])
 
   // 跨窗口数据同步 - 监听悬浮窗发送的消息
   useEffect(() => {
@@ -218,41 +285,7 @@ function App() {
 
   // 跨窗口数据同步 - 将消息变化通知悬浮窗
   useEffect(() => {
-    // 只在消息数量增加时才通知悬浮窗（避免流式更新时重复触发）
-    const currentLength = messages.length
-    if (currentLength === prevMessagesLengthRef.current) {
-      // 消息数量没变，只是内容更新（如流式响应），只更新 localStorage
-      const messagePreview = messages.map(msg => {
-        let content = ''
-        if (msg.type === 'user') {
-          content = msg.content
-        } else if (msg.type === 'assistant' && 'blocks' in msg) {
-          content = msg.blocks.map((b: any) =>
-            b.type === 'text' ? b.content : `[${b.name || 'tool'}]`
-          ).join(' ')
-        } else if (msg.type === 'system') {
-          content = (msg as any).content || ''
-        } else if (msg.type === 'tool') {
-          content = (msg as any).summary || ''
-        } else if (msg.type === 'tool_group') {
-          content = (msg as any).summary || ''
-        } else {
-          content = ''
-        }
-        return {
-          id: msg.id,
-          type: msg.type,
-          content,
-          timestamp: msg.timestamp,
-        }
-      })
-      localStorage.setItem('chat_messages_preview', JSON.stringify(messagePreview))
-      // 更新记录
-      prevMessagesLengthRef.current = currentLength
-      return
-    }
-
-    // 消息数量有变化，保存消息到 localStorage
+    // 总是更新 localStorage，确保悬浮窗可以读取最新消息
     const messagePreview = messages.map(msg => {
       let content = ''
       if (msg.type === 'user') {
@@ -279,35 +312,47 @@ function App() {
     })
     localStorage.setItem('chat_messages_preview', JSON.stringify(messagePreview))
 
-    // 只在有新消息时通知悬浮窗
-    if (currentLength > 0 && currentLength > prevMessagesLengthRef.current) {
-      const lastMessage = messages[currentLength - 1]
-      let content = ''
-      if (lastMessage.type === 'user') {
-        content = lastMessage.content
-      } else if (lastMessage.type === 'assistant' && 'blocks' in lastMessage) {
-        content = lastMessage.blocks.map((b: any) =>
-          b.type === 'text' ? b.content : `[${b.name || 'tool'}]`
-        ).join(' ')
-      } else if (lastMessage.type === 'system') {
-        content = (lastMessage as any).content || ''
-      } else if (lastMessage.type === 'tool') {
-        content = (lastMessage as any).summary || ''
-      } else if (lastMessage.type === 'tool_group') {
-        content = (lastMessage as any).summary || ''
-      } else {
-        content = ''
-      }
-      emit('chat:new-message', {
-        id: lastMessage.id,
-        type: lastMessage.type,
-        content,
-        timestamp: lastMessage.timestamp,
-      })
-    }
+    // 检查是否有新消息（消息数量增加）
+    const currentLength = messages.length
+    if (currentLength > prevMessagesLengthRef.current) {
+      // 有新消息，找出新增的消息并发送事件
+      const newMessages = messages.slice(prevMessagesLengthRef.current)
 
-    // 更新记录
-    prevMessagesLengthRef.current = currentLength
+      for (const msg of newMessages) {
+        // 检查是否已经发送过这条消息（防止重复）
+        if (!sentMessageIdsRef.current.has(msg.id)) {
+          let content = ''
+          if (msg.type === 'user') {
+            content = msg.content
+          } else if (msg.type === 'assistant' && 'blocks' in msg) {
+            content = msg.blocks.map((b: any) =>
+              b.type === 'text' ? b.content : `[${b.name || 'tool'}]`
+            ).join(' ')
+          } else if (msg.type === 'system') {
+            content = (msg as any).content || ''
+          } else if (msg.type === 'tool') {
+            content = (msg as any).summary || ''
+          } else if (msg.type === 'tool_group') {
+            content = (msg as any).summary || ''
+          } else {
+            content = ''
+          }
+
+          // 标记为已发送
+          sentMessageIdsRef.current.add(msg.id)
+          console.log('[App] 发送 chat:new-message 事件:', { id: msg.id, type: msg.type, content })
+          emit('chat:new-message', {
+            id: msg.id,
+            type: msg.type,
+            content,
+            timestamp: msg.timestamp,
+          })
+        }
+      }
+
+      // 更新记录
+      prevMessagesLengthRef.current = currentLength
+    }
   }, [messages])
 
   // 跨窗口数据同步 - 同步流式状态
