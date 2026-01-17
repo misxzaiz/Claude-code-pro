@@ -14,11 +14,38 @@
  * - 通过 Tauri 事件发送消息到主窗口
  */
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import DOMPurify from 'dompurify'
+import { marked } from 'marked'
 import type { ChatMessage } from '../../types'
 import './FloatingWindow.css'
+
+// 配置 marked（与主窗口保持一致）
+marked.setOptions({
+  breaks: true,
+  gfm: true,
+})
+
+/**
+ * Markdown 渲染器（与主窗口保持一致）
+ */
+function formatContent(content: string): string {
+  try {
+    const raw = marked.parse(content) as string
+    return DOMPurify.sanitize(raw, {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'code', 'pre', 'blockquote', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'a', 'span', 'div', 'mark'],
+      ALLOWED_ATTR: ['class', 'href', 'target', 'rel'],
+    })
+  } catch {
+    return content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br>')
+  }
+}
 
 // 悬浮窗配置类型
 interface FloatingWindowConfig {
@@ -184,6 +211,19 @@ export function FloatingWindow() {
     emit('floating:interrupt_chat', {})
   }, [])
 
+  // 文本内容块渲染器
+  const TextBlockRenderer = useMemo(() => {
+    return function TextBlockRenderer({ content }: { content: string }) {
+      const formattedContent = useMemo(() => formatContent(content), [content])
+      return (
+        <div
+          className="prose prose-invert prose-sm max-w-none"
+          dangerouslySetInnerHTML={{ __html: formattedContent }}
+        />
+      )
+    }
+  }, [])
+
   return (
     <div className="floating-window">
       {/* 标题栏 - 可拖拽区域 */}
@@ -227,7 +267,7 @@ export function FloatingWindow() {
                     <div className="floating-message-content">
                       {msg.blocks.map((block, idx) => {
                         if (block.type === 'text') {
-                          return <div key={idx} dangerouslySetInnerHTML={{ __html: block.content }} />
+                          return <TextBlockRenderer key={idx} content={block.content} />
                         } else if (block.type === 'tool_call') {
                           return (
                             <div key={idx} className="floating-tool-call">
