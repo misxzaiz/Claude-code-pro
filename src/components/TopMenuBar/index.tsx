@@ -3,6 +3,7 @@
  */
 
 import { useState } from 'react';
+import { Minimize } from 'lucide-react';
 import { useWorkspaceStore, useViewStore, useEventChatStore, useConfigStore } from '../../stores';
 import { useFloatingWindowStore } from '../../stores/floatingWindowStore';
 import * as tauri from '../../services/tauri';
@@ -153,9 +154,7 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
             className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-background-hover transition-colors"
             title="切换到悬浮窗"
           >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-            </svg>
+            <Minimize className="w-4 h-4" />
           </button>
         )}
 
