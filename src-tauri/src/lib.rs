@@ -21,6 +21,12 @@ use commands::file_explorer::{
     read_directory, get_file_content, create_file, create_directory,
     delete_file, rename_file, path_exists, read_commands, search_files
 };
+use commands::context::{
+    context_upsert, context_upsert_many, context_query, context_get_all,
+    context_remove, context_clear,
+    ide_report_current_file, ide_report_file_structure, ide_report_diagnostics,
+    ContextMemoryStore,
+};
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -31,6 +37,8 @@ pub struct AppState {
     /// 保存会话 ID 到进程 PID 的映射
     /// 使用 PID 而不是 Child，因为 Child 会在读取输出时被消费
     pub sessions: Arc<Mutex<HashMap<String, u32>>>,
+    /// 上下文存储
+    pub context_store: Arc<Mutex<ContextMemoryStore>>,
 }
 
 // ============================================================================
@@ -166,6 +174,7 @@ pub fn run() {
         .manage(AppState {
             config_store: Mutex::new(config_store),
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            context_store: Arc::new(Mutex::new(ContextMemoryStore::new())),
         })
         .invoke_handler(tauri::generate_handler![
             // 配置相关
@@ -209,6 +218,16 @@ pub fn run() {
             is_floating_window_visible,
             set_floating_window_position,
             get_floating_window_position,
+            // 上下文管理相关
+            context_upsert,
+            context_upsert_many,
+            context_query,
+            context_get_all,
+            context_remove,
+            context_clear,
+            ide_report_current_file,
+            ide_report_file_structure,
+            ide_report_diagnostics,
 
         ])
         .run(tauri::generate_context!())

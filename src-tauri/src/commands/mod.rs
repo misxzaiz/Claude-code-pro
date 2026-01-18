@@ -2,6 +2,7 @@ pub mod chat;
 pub mod workspace;
 pub mod file_explorer;
 pub mod window;
+pub mod context;
 
 // 重新导出命令函数，确保它们在模块级别可见
 pub use chat::{start_chat, continue_chat, interrupt_chat};
@@ -18,4 +19,11 @@ pub use file_explorer::{
 pub use window::{
     show_floating_window, show_main_window, toggle_floating_window,
     is_floating_window_visible, set_floating_window_position, get_floating_window_position
+};
+
+// 上下文管理命令
+pub use context::{
+    context_upsert, context_upsert_many, context_query, context_get_all,
+    context_remove, context_clear,
+    ide_report_current_file, ide_report_file_structure, ide_report_diagnostics,
 };

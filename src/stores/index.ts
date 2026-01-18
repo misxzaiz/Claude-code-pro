@@ -17,3 +17,6 @@ export { useFileExplorerStore } from './fileExplorerStore';
 export { useFileEditorStore } from './fileEditorStore';
 export { useViewStore } from './viewStore';
 export { useFloatingWindowStore } from './floatingWindowStore';
+
+// Context Store
+export { useContextStore } from './contextStore';

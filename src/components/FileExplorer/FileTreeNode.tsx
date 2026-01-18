@@ -1,4 +1,6 @@
 import { memo, useEffect, useState, useCallback } from 'react';
+import { ChevronRight, ChevronDown, Folder, Loader2 } from 'lucide-react';
+import { clsx } from 'clsx';
 import { FileIcon } from './FileIcon';
 import { ContextMenu, isHtmlFile, type ContextMenuItem } from './ContextMenu';
 import { useFileExplorerStore, useFileEditorStore } from '../../stores';
@@ -134,11 +136,11 @@ export const FileTreeNode = memo<FileTreeNodeProps>(({
   return (
     <div>
       <div
-        className={`
-          flex items-center px-2 py-1 cursor-pointer rounded transition-colors
-          hover:bg-background-hover
-          ${isSelected ? 'bg-primary/20 border-l-2 border-primary' : ''}
-        `}
+        className={clsx(
+          'flex items-center px-2 py-1.5 cursor-pointer rounded transition-colors',
+          'hover:bg-background-hover',
+          isSelected && 'bg-primary/20 border-l-2 border-primary'
+        )}
         style={{ paddingLeft: `${level * 16 + 8}px` }}
         onClick={handleClick}
         onContextMenu={handleContextMenu}
@@ -147,22 +149,34 @@ export const FileTreeNode = memo<FileTreeNodeProps>(({
         tabIndex={0}
         aria-label={file.is_dir ? `文件夹 ${file.name}` : `文件 ${file.name}`}
       >
-        {/* 展开/收起箭头 */}
+        {/* 展开/收起图标 - 使用 lucide-react 图标 */}
         {file.is_dir && (
-          <span className="mr-1 text-text-tertiary transition-transform duration-200 flex-shrink-0"
-                style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)' }}>
-            {isLoading ? '⏳' : '▶'}
+          <span className="mr-1 flex-shrink-0">
+            {isLoading ? (
+              <Loader2 className="w-3.5 h-3.5 text-text-muted animate-spin" />
+            ) : isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-text-muted" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-text-muted" />
+            )}
           </span>
         )}
 
         {/* 占位符（非目录文件） */}
-        {!file.is_dir && <span className="mr-1 w-3 flex-shrink-0" />}
+        {!file.is_dir && <span className="mr-1 w-3.5 flex-shrink-0" />}
 
-        {/* 文件图标 */}
-        <FileIcon
-          file={file}
-          className="mr-2 w-4 h-4 flex-shrink-0"
-        />
+        {/* 文件/文件夹图标 */}
+        {file.is_dir ? (
+          <Folder className={clsx(
+            'mr-2 w-4 h-4 flex-shrink-0',
+            isExpanded ? 'text-primary' : 'text-text-muted'
+          )} />
+        ) : (
+          <FileIcon
+            file={file}
+            className="mr-2 w-4 h-4 flex-shrink-0"
+          />
+        )}
 
         {/* 文件名 */}
         <span

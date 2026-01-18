@@ -108,22 +108,22 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
   // 加载文件夹内容（懒加载）
   load_folder_content: async (folderPath: string) => {
     const { folder_cache } = get();
-    
+
     // 检查缓存
     if (folder_cache.has(folderPath)) {
       return;
     }
-    
+
     // 检查是否正在加载
     const { loading_folders } = get();
     if (loading_folders.has(folderPath)) {
       return;
     }
-    
+
     set((state) => ({
       loading_folders: new Set([...state.loading_folders, folderPath])
     }));
-    
+
     try {
       const children = await tauri.readDirectory(folderPath) as FileInfo[];
 
@@ -131,14 +131,14 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
         // 更新缓存
         const newCache = new Map(state.folder_cache);
         newCache.set(folderPath, children);
-        
+
         // 更新文件树
         const updatedTree = updateFolderChildren(state.file_tree, folderPath, children);
-        
+
         // 移除加载状态
         const newLoading = new Set(state.loading_folders);
         newLoading.delete(folderPath);
-        
+
         return {
           folder_cache: newCache,
           file_tree: updatedTree,
@@ -150,7 +150,7 @@ export const useFileExplorerStore = create<FileExplorerStore>((set, get) => ({
         // 移除加载状态
         const newLoading = new Set(state.loading_folders);
         newLoading.delete(folderPath);
-        
+
         return {
           loading_folders: newLoading,
           error: error instanceof Error ? error.message : '加载文件夹失败',

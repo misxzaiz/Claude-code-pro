@@ -6,6 +6,7 @@ import { EditorPanel } from './components/Editor';
 import { DeveloperPanel } from './components/Developer';
 import { TopMenuBar as TopMenuBarComponent } from './components/TopMenuBar';
 import { CreateWorkspaceModal } from './components/Workspace';
+import { ContextToolbar } from './components/Context';
 import { useConfigStore, useEventChatStore, useViewStore, useWorkspaceStore, useFloatingWindowStore } from './stores';
 import * as tauri from './services/tauri';
 import { bootstrapEngines } from './core/engine-bootstrap';
@@ -357,6 +358,9 @@ function App() {
             )}
 
             <EnhancedChatMessages />
+
+            {/* 上下文工具栏 */}
+            <ContextToolbar />
 
             <ChatInput
               onSend={sendMessage}
