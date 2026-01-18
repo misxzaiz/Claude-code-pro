@@ -1,6 +1,6 @@
 /**
  * 上下文感知输入框
- * 整合上下文管理功能的增强版输入框
+ * 增强版输入框，支持快速操作和展开/收起
  */
 
 import { useState, useRef, KeyboardEvent, useCallback, useMemo } from 'react';
@@ -13,29 +13,16 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { IconSend, IconStop } from '../Common/Icons';
-import { ContextToolbar } from '../Context';
-import { useWorkspaceStore } from '../../stores';
 
 interface ContextAwareInputProps {
   value: string;
   onChange: (value: string) => void;
-  onSend: (message: string, context?: ContextSnapshot) => void;
+  onSend: (message: string) => void;
   disabled?: boolean;
   isStreaming?: boolean;
   onInterrupt?: () => void;
   placeholder?: string;
   className?: string;
-}
-
-// 临时类型，应该从 context 导入
-interface ContextSnapshot {
-  workspaceId: string | null;
-  selectedFiles: any[];
-  selectedSymbols: any[];
-  messageContext: any;
-  projectInfo: any;
-  diagnostics: any[];
-  estimatedTokens: number;
 }
 
 /**
@@ -55,8 +42,6 @@ export function ContextAwareInput({
   const [showQuickActions, setShowQuickActions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const { currentWorkspaceId } = useWorkspaceStore();
 
   // 计算字符数
   const charCount = value.length;
@@ -84,25 +69,13 @@ export function ContextAwareInput({
     const trimmed = value.trim();
     if (!trimmed || disabled || isStreaming) return;
 
-    // TODO: 构建上下文快照
-    const context: ContextSnapshot = {
-      workspaceId: currentWorkspaceId,
-      selectedFiles: [],
-      selectedSymbols: [],
-      messageContext: null,
-      projectInfo: null,
-      diagnostics: [],
-      estimatedTokens: 0,
-    };
-
-    onSend(trimmed, context);
+    onSend(trimmed);
     onChange('');
-  }, [value, disabled, isStreaming, onSend, onChange, currentWorkspaceId]);
+  }, [value, disabled, isStreaming, onSend, onChange]);
 
   // 处理文件拖放
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    // TODO: 处理文件拖放，添加到上下文
     const files = Array.from(e.dataTransfer.files);
     console.log('Dropped files:', files);
   }, []);
@@ -128,7 +101,6 @@ export function ContextAwareInput({
       label: '引用文件',
       shortcut: '@',
       action: () => {
-        // 触发文件引用
         onChange(value + '@');
         textareaRef.current?.focus();
       },
@@ -138,7 +110,6 @@ export function ContextAwareInput({
       label: '命令',
       shortcut: '/',
       action: () => {
-        // 触发命令
         onChange(value + '/');
         textareaRef.current?.focus();
       },
@@ -147,9 +118,6 @@ export function ContextAwareInput({
 
   return (
     <div className={clsx('border-t border-border bg-background-elevated', className)} ref={containerRef}>
-      {/* 上下文工具栏 */}
-      <ContextToolbar />
-
       {/* 输入区域 */}
       <div className="flex items-end gap-3 p-4">
         {/* 快速操作按钮 */}
