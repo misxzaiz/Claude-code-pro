@@ -2,7 +2,7 @@
 
 ## 概述
 
-本文档描述如何将 IFlow CLI 作为另一个 AI Engine 集成到 Claude Code Pro 中。
+本文档描述如何将 IFlow CLI 作为另一个 AI Engine 集成到 Polaris 中。
 
 ## 架构设计
 

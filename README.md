@@ -1,10 +1,10 @@
-# Claude Code Pro
+# Polaris
 
-> Claude Code CLI 的可视化桌面客户端
+> 多AI引擎支持的智能编程助手
 
 ## 简介
 
-[Claude Code](https://claude.ai/code) 是 Anthropic 官方推出的 AI 辅助编程命令行工具。**Claude Code Pro** 是其第三方可视化 GUI 封装，提供了更友好的图形界面，让你无需命令行也能享受 Claude AI 带来的编程体验。
+[Claude Code](https://claude.ai/code) 是 Anthropic 官方推出的 AI 辅助编程命令行工具。**Polaris** 是一个支持多种 AI 引擎的智能编程助手，提供了更友好的图形界面，让你无需命令行也能享受 AI 带来的编程体验。
 
 ### 核心功能
 

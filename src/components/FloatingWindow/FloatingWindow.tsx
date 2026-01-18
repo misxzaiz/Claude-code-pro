@@ -230,7 +230,7 @@ export function FloatingWindow() {
       <div className="floating-header" data-tauri-drag-region>
         <div className="floating-title">
           <span className="floating-title-icon">◉</span>
-          <span>Claude Code Pro</span>
+          <span>Polaris</span>
         </div>
         <button
           className="floating-expand-btn"

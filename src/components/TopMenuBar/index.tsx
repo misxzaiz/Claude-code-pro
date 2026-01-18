@@ -73,7 +73,7 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
         <div className="w-6 h-6 rounded bg-gradient-to-br from-primary to-primary-600 flex items-center justify-center shadow-glow">
           <span className="text-xs font-bold text-white">C</span>
         </div>
-        <span className="text-sm font-medium text-text-primary">Claude Code Pro</span>
+        <span className="text-sm font-medium text-text-primary">Polaris</span>
       </div>
 
       {/* 右侧：工作区 | 新对话 | 设置 */}

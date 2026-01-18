@@ -2,7 +2,7 @@
  * 配置相关类型定义
  */
 
-/** AI 引擎 ID */
+/**  引擎 ID */
 export type EngineId = 'claude-code' | 'iflow'
 
 /** AI 引擎配置 */

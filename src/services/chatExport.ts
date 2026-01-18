@@ -44,7 +44,7 @@ export function exportToMarkdown(
     second: '2-digit',
   });
 
-  let md = '# Claude Code Pro 对话记录\n\n';
+  let md = '# Polaris 对话记录\n\n';
   md += `**时间**: ${date}\n`;
 
   if (workspaceName) {
@@ -105,7 +105,7 @@ export function exportToJson(
       date: new Date().toISOString(),
       workspace: workspaceName || null,
       messageCount: messages.length,
-      exportedBy: 'Claude Code Pro',
+      exportedBy: 'Polaris',
     },
     messages: messages.map(m => ({
       type: m.type,

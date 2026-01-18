@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-code-pro",
+  "productName": "polaris",
   "version": "0.1.0",
-  "identifier": "com.tauri-app.claude-code-pro",
+  "identifier": "com.polaris.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claude Code Pro",
+        "title": "Polaris",
         "width": 1200,
         "height": 800,
         "minWidth": 800,
@@ -21,7 +21,7 @@
       },
       {
         "label": "floating",
-        "title": "Claude Code Pro - 悬浮窗",
+        "title": "Polaris - 悬浮窗",
         "url": "floating.html",
         "width": 500,
         "height": 400,

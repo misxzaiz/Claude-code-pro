@@ -1,4 +1,4 @@
-# 📄 Claude Code Pro 抽象化重构工程说明文档
+# 📄 Polaris 抽象化重构工程说明文档
 
 ## 1. 重构目标（非常重要）
 
@@ -22,7 +22,7 @@
 
 1. Claude CLI 输出被 UI 直接消费（强耦合）
 2. 不存在统一的 Task / Session 抽象
-3. Claude 的 stdout = UI 的“事实来源”
+3. Claude 的 stdout = UI 的"事实来源"
 4. 无法扩展到多 AI Engine
 
 ### 本次重构 **不解决 UI 美化、不调 Prompt**
@@ -237,7 +237,7 @@ AIEngine → AISession → AIEvent
 
 ## 11. 最终目标一句话
 
-> **Claude Code Pro 从 “Claude 的 GUI”
-> 升级为 “可插拔 AI Code Runtime 平台”**
+> **Polaris 从 "Claude 的 GUI"
+> 升级为 "可插拔 AI Code Runtime 平台"**
 
 ---

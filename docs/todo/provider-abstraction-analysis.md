@@ -1,4 +1,4 @@
-# AI 底层抽象层设计方案分析
+# Polaris AI 底层抽象层设计方案分析
 
 本文档分析如何设计抽象层，以支持未来接入其他 AI 底层工具（如 OpenAI、本地模型、其他 AI 编程助手等）。
 
@@ -915,4 +915,4 @@ impl From<reqwest::Error> for ProviderError {
 
 > 文档版本: v1.0
 > 最后更新: 2026-01-11
-> 作者: Claude Code Pro Team
+> 作者: Polaris Team

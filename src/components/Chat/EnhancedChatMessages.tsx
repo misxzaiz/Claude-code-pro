@@ -726,7 +726,7 @@ const EmptyState = memo(function EmptyState() {
 
       {/* 标题 */}
       <h1 className="text-2xl font-semibold text-text-primary mb-2">
-        Claude Code Pro
+        Polaris
       </h1>
 
       {/* 描述 */}

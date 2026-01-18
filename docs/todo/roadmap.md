@@ -1,4 +1,4 @@
-# Claude Code Pro 功能路线图
+# Polaris 功能路线图
 
 本文档记录了项目可以扩展和优化的方向，按优先级分类。
 
@@ -512,4 +512,4 @@ interface Plugin {
 ---
 
 > 最后更新: 2026-01-11
-> 维护者: Claude Code Pro Team
+> 维护者: Polaris Team

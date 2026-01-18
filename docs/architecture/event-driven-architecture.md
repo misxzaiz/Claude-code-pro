@@ -1,4 +1,4 @@
-# Claude Code Pro - 事件驱动架构文档
+# Polaris - 事件驱动架构文档
 
 ## 一、文件级架构图
 
