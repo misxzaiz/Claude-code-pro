@@ -188,3 +188,69 @@ export function getWorkspaceByName(name: string, workspaces: Workspace[]): Works
 export function isValidWorkspaceReference(text: string): boolean {
   return /^@[\w\u4e00-\u9fa5-]+:/.test(text);
 }
+
+/**
+ * 构建工作区上下文（结构化格式，用于 AITask.extra）
+ *
+ * @param workspaces 所有工作区列表
+ * @param contextWorkspaces 关联工作区列表
+ * @param currentWorkspaceId 当前工作区 ID
+ * @returns 工作区上下文对象
+ */
+export function buildWorkspaceContextExtra(
+  workspaces: Workspace[],
+  contextWorkspaces: Workspace[],
+  currentWorkspaceId: string | null
+): { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> } | null {
+  const currentWorkspace = workspaces.find(w => w.id === currentWorkspaceId);
+
+  if (!currentWorkspace) {
+    return null;
+  }
+
+  return {
+    currentWorkspace: {
+      name: currentWorkspace.name,
+      path: currentWorkspace.path,
+    },
+    contextWorkspaces: contextWorkspaces.map(w => ({
+      name: w.name,
+      path: w.path,
+    })),
+  };
+}
+
+/**
+ * 格式化工作区上下文为系统提示词
+ *
+ * 将结构化的工作区上下文转换为适合 AI 理解的提示词格式
+ *
+ * @param workspaceContext 工作区上下文对象
+ * @returns 格式化的提示词字符串
+ */
+export function formatWorkspaceContextAsPrompt(
+  workspaceContext: { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> }
+): string {
+  const lines: string[] = [];
+
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push('                        工作区信息');
+  lines.push('═══════════════════════════════════════════════════════════');
+  lines.push(`当前工作区: ${workspaceContext.currentWorkspace.name}`);
+  lines.push(`  路径: ${workspaceContext.currentWorkspace.path}`);
+  lines.push(`  引用语法: @/path`);
+
+  if (workspaceContext.contextWorkspaces.length > 0) {
+    lines.push('');
+    lines.push('关联工作区:');
+    for (const ws of workspaceContext.contextWorkspaces) {
+      lines.push(`  • ${ws.name}`);
+      lines.push(`    路径: ${ws.path}`);
+      lines.push(`    引用语法: @${ws.name}:path`);
+    }
+  }
+
+  lines.push('═══════════════════════════════════════════════════════════');
+
+  return lines.join('\n');
+}

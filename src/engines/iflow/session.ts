@@ -157,7 +157,19 @@ export class IFlowSession extends BaseSession {
    */
   private buildIFlowArgs(task: AITask): string[] {
     const args: string[] = []
-    const prompt = task.input.prompt as string
+    let prompt = task.input.prompt as string
+
+    // 处理工作区上下文（如果存在）
+    const workspaceContext = task.input.extra?.workspaceContext as
+      { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> } | undefined
+
+    if (workspaceContext) {
+      // 将工作区上下文作为系统提示词注入
+      const contextHeader = this.formatWorkspaceContext(workspaceContext)
+      if (contextHeader) {
+        prompt = `${contextHeader}\n\n${prompt}`
+      }
+    }
 
     // 基础参数
     args.push('--json') // JSON 格式输出
@@ -178,6 +190,36 @@ export class IFlowSession extends BaseSession {
     args.push(prompt)
 
     return args
+  }
+
+  /**
+   * 格式化工作区上下文为提示词
+   */
+  private formatWorkspaceContext(
+    workspaceContext: { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> }
+  ): string {
+    const lines: string[] = []
+
+    lines.push('═══════════════════════════════════════════════════════════')
+    lines.push('                        工作区信息')
+    lines.push('═══════════════════════════════════════════════════════════')
+    lines.push(`当前工作区: ${workspaceContext.currentWorkspace.name}`)
+    lines.push(`  路径: ${workspaceContext.currentWorkspace.path}`)
+    lines.push(`  引用语法: @/path`)
+
+    if (workspaceContext.contextWorkspaces.length > 0) {
+      lines.push('')
+      lines.push('关联工作区:')
+      for (const ws of workspaceContext.contextWorkspaces) {
+        lines.push(`  • ${ws.name}`)
+        lines.push(`    路径: ${ws.path}`)
+        lines.push(`    引用语法: @${ws.name}:path`)
+      }
+    }
+
+    lines.push('═══════════════════════════════════════════════════════════')
+
+    return lines.join('\n')
   }
 
   /**

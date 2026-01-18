@@ -3,16 +3,25 @@
  *
  * 完全基于 AIEvent 和 EventBus 的聊天状态管理。
  * 支持新的分层对话流消息类型（ToolMessage、ToolGroupMessage）。
+ *
+ * 架构说明：
+ * 1. Tauri 'chat-event' → convertStreamEventToAIEvents() → EventBus.emit()
+ * 2. EventBus → DeveloperPanel（调试面板）
+ * 3. 本地处理逻辑 → UI 更新
  */
 
 import { create } from 'zustand'
 import type { ChatMessage, AssistantChatMessage, UserChatMessage, ContentBlock, ToolCallBlock, ToolStatus } from '../types'
+import type { StreamEvent } from '../types/chat'
+import type { AIEvent } from '../ai-runtime'
 import { useToolPanelStore } from './toolPanelStore'
 import { useWorkspaceStore } from './workspaceStore'
 import {
   generateToolSummary,
   calculateDuration,
 } from '../utils/toolSummary'
+import { parseWorkspaceReferences } from '../services/workspaceReference'
+import { getEventBus } from '../ai-runtime'
 
 /** 最大保留消息数量 */
 const MAX_MESSAGES = 500
@@ -123,6 +132,160 @@ interface CurrentAssistantMessage {
   id: string
   blocks: ContentBlock[]
   isStreaming: true
+}
+
+// ============================================================================
+// 统一事件转换层：StreamEvent → AIEvent
+// ============================================================================
+
+/**
+ * 将 Tauri 的 StreamEvent 转换为标准的 AIEvent 数组
+ *
+ * 这是事件转换的统一入口，所有 StreamEvent 都通过这里转换为 AIEvent。
+ * 转换后的事件会：
+ * 1. 通过 EventBus 分发给所有订阅者（如 DeveloperPanel）
+ * 2. 同时在本地进行状态更新
+ */
+function convertStreamEventToAIEvents(streamEvent: StreamEvent, sessionId: string | null): AIEvent[] {
+  const events: AIEvent[] = []
+
+  switch (streamEvent.type) {
+    case 'system': {
+      // Claude Code 的 system 事件可能包含 session_id
+      const systemEvent = streamEvent as { type: 'system'; subtype?: string; session_id?: string; extra?: { message?: string } }
+      if (systemEvent.session_id) {
+        events.push({ type: 'session_start', sessionId: systemEvent.session_id })
+      }
+
+      // 处理进度消息
+      if (systemEvent.subtype === 'progress' || systemEvent.extra?.message) {
+        events.push({
+          type: 'progress',
+          message: systemEvent.extra?.message || systemEvent.subtype,
+        })
+      }
+      break
+    }
+
+    case 'session_start': {
+      if (streamEvent.sessionId) {
+        events.push({ type: 'session_start', sessionId: streamEvent.sessionId })
+      }
+      break
+    }
+
+    case 'session_end':
+    case 'result': {
+      events.push({
+        type: 'session_end',
+        sessionId: sessionId || 'unknown',
+        reason: 'completed',
+      })
+      break
+    }
+
+    case 'text_delta': {
+      events.push({ type: 'token', value: streamEvent.text || '' })
+      break
+    }
+
+    case 'assistant': {
+      if (streamEvent.message?.content) {
+        // 提取文本内容
+        const content = extractTextFromContent(streamEvent.message.content)
+        if (content) {
+          events.push({
+            type: 'assistant_message',
+            content,
+            isDelta: false,
+          })
+        }
+
+        // 提取工具调用
+        const toolUses = extractToolUsesFromContent(streamEvent.message.content)
+        for (const toolUse of toolUses) {
+          // 工具调用开始事件
+          events.push({
+            type: 'tool_call_start',
+            callId: toolUse.id,
+            tool: toolUse.name,
+            args: toolUse.input as Record<string, unknown>,
+          })
+        }
+      }
+      break
+    }
+
+    case 'user': {
+      if (streamEvent.message?.content) {
+        // 处理工具结果
+        const toolResults = extractToolResultsFromContent(streamEvent.message.content)
+        for (const result of toolResults) {
+          events.push({
+            type: 'tool_call_end',
+            callId: result.tool_use_id,
+            tool: result.tool_use_id, // 使用 tool_use_id 作为工具名
+            result: result.content,
+            success: !result.is_error,
+          })
+        }
+      }
+      break
+    }
+
+    case 'tool_start': {
+      events.push({
+        type: 'tool_call_start',
+        callId: streamEvent.toolUseId,
+        tool: streamEvent.toolName || 'unknown',
+        args: streamEvent.input as Record<string, unknown>,
+      })
+      events.push({
+        type: 'progress',
+        message: `调用工具: ${streamEvent.toolName}`,
+      })
+      break
+    }
+
+    case 'tool_end': {
+      events.push({
+        type: 'tool_call_end',
+        callId: streamEvent.toolUseId,
+        tool: streamEvent.toolName || 'unknown',
+        result: streamEvent.output,
+        success: streamEvent.output !== undefined,
+      })
+      events.push({
+        type: 'progress',
+        message: `工具完成: ${streamEvent.toolName}`,
+      })
+      break
+    }
+
+    case 'error': {
+      events.push({
+        type: 'error',
+        error: streamEvent.error || '未知错误',
+      })
+      break
+    }
+
+    case 'permission_request': {
+      events.push({
+        type: 'progress',
+        message: '等待权限确认...',
+      })
+      break
+    }
+
+    default: {
+      const unknownEvent = streamEvent as { type: string }
+      console.log('[EventChatStore] 未转换的事件类型:', unknownEvent.type)
+      break
+    }
+  }
+
+  return events
 }
 
 /**
@@ -490,19 +653,37 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
   /**
    * 初始化事件监听
    * 这是事件驱动架构的核心方法
+   *
+   * 架构说明：
+   * 1. 监听 Tauri 'chat-event'（StreamEvent 原始格式）
+   * 2. 转换为 AIEvent
+   * 3. 通过 EventBus 分发（DeveloperPanel 可以订阅）
+   * 4. 同时处理本地状态更新
    */
   initializeEventListeners: () => {
     const cleanupCallbacks: Array<() => void> = []
+
+    // 获取 EventBus 单例
+    const eventBus = getEventBus({ debug: false })
 
     // ========== 监听 Tauri chat-event（桥接 IFlow/Claude Code 事件） ==========
     // 动态导入 Tauri API
     import('@tauri-apps/api/event').then(({ listen }) => {
       const unlistenPromise = listen<string>('chat-event', (tauriEvent) => {
         try {
-          const streamEvent = JSON.parse(tauriEvent.payload)
+          const streamEvent = JSON.parse(tauriEvent.payload) as StreamEvent
+          const state = get()
+
           console.log('[EventChatStore] 收到 chat-event:', streamEvent.type)
 
-          // 根据 StreamEvent 类型处理
+          // ========== 关键修改：转换为 AIEvent 并发布到 EventBus ==========
+          const aiEvents = convertStreamEventToAIEvents(streamEvent, state.conversationId)
+          for (const aiEvent of aiEvents) {
+            eventBus.emit(aiEvent)
+          }
+
+          // ========== 本地状态处理（原有逻辑） ==========
+          // 根据 StreamEvent 类型处理本地状态
           switch (streamEvent.type) {
             case 'system': {
               // Claude Code 的 init 事件包含真实的 session_id
@@ -514,13 +695,13 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
               }
               // 处理 progress 子类型
               if (streamEvent.subtype === 'progress') {
-                set({ progressMessage: streamEvent.extra?.message || null })
+                const extra = (streamEvent as { extra?: { message?: string } }).extra
+                set({ progressMessage: extra?.message || null })
               }
               break
             }
 
             case 'session_end': {
-              const state = get()
               state.finishMessage()
               set({ isStreaming: false, progressMessage: null })
               break
@@ -626,23 +807,44 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
   sendMessage: async (content, workspaceDir) => {
     const { conversationId } = get()
 
+    // 获取工作区信息（包括关联工作区）
+    const workspaceStore = useWorkspaceStore.getState()
+    const currentWorkspace = workspaceStore.getCurrentWorkspace()
+
+    // 如果没有工作区，不允许发送消息
+    if (!currentWorkspace) {
+      set({ error: '请先创建或选择一个工作区' })
+      return
+    }
+
     // 获取当前工作区路径作为默认值
-    // 如果外部传入了 workspaceDir 则使用传入值，否则使用当前选中的工作区
-    const actualWorkspaceDir = workspaceDir ?? useWorkspaceStore.getState().getCurrentWorkspace()?.path
+    const actualWorkspaceDir = workspaceDir ?? currentWorkspace.path
+
+    // 解析工作区引用并生成上下文头
+    // contextHeader 包含当前工作区和所有关联工作区的信息
+    const { processedMessage, contextHeader } = parseWorkspaceReferences(
+      content,
+      workspaceStore.workspaces,
+      workspaceStore.getContextWorkspaces(), // 获取关联工作区
+      workspaceStore.currentWorkspaceId
+    )
+
+    // 添加上下文头到消息（UI 显示原始内容，发送给 AI 的是带上下文的内容）
+    const finalMessage = contextHeader ? contextHeader + '\n' + processedMessage : processedMessage
 
     // 规范化消息内容：将换行符替换为 \\n 字符串
     // 避免 iFlow CLI 参数解析器无法正确处理包含实际换行符的参数值
-    const normalizedContent = content
+    const normalizedContent = finalMessage
       .replace(/\r\n/g, '\\n')
       .replace(/\r/g, '\\n')
       .replace(/\n/g, '\\n')
       .trim()
 
-    // 添加用户消息（使用原始内容显示，规范化后的内容发送）
+    // 添加用户消息（使用原始内容显示）
     const userMessage: UserChatMessage = {
       id: crypto.randomUUID(),
       type: 'user',
-      content,
+      content, // 保持原始内容显示，用户看不到上下文头
       timestamp: new Date().toISOString(),
     }
     get().addMessage(userMessage)

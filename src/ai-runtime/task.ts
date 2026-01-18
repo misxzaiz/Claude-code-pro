@@ -6,6 +6,30 @@
  */
 
 /**
+ * 工作区信息
+ */
+export interface WorkspaceInfo {
+  /** 工作区名称 */
+  name: string
+  /** 工作区路径 */
+  path: string
+  /** 引用语法（如 @/path 或 @workspace:path） */
+  referenceSyntax: string
+}
+
+/**
+ * 工作区上下文（用于 AITaskInput.extra）
+ *
+ * 包含当前工作区和所有关联工作区的信息
+ */
+export interface WorkspaceContextExtra {
+  /** 当前工作区 */
+  currentWorkspace: WorkspaceInfo
+  /** 关联的工作区列表 */
+  contextWorkspaces: WorkspaceInfo[]
+}
+
+/**
  * 任务类型
  */
 export type AITaskKind = 'chat' | 'refactor' | 'analyze' | 'generate'

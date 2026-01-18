@@ -187,6 +187,18 @@ export class ClaudeCodeSession extends BaseSession {
   private buildPrompt(task: AITask): string {
     let prompt = task.input.prompt
 
+    // 处理工作区上下文（如果存在）
+    const workspaceContext = task.input.extra?.workspaceContext as
+      { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> } | undefined
+
+    if (workspaceContext) {
+      // 将工作区上下文作为系统提示词注入
+      const contextHeader = this.formatWorkspaceContext(workspaceContext)
+      if (contextHeader) {
+        prompt = `${contextHeader}\n\n${prompt}`
+      }
+    }
+
     // 如果有指定文件，添加上下文
     if (task.input.files && task.input.files.length > 0) {
       // Claude CLI 会自动处理工作区中的文件引用
@@ -194,6 +206,36 @@ export class ClaudeCodeSession extends BaseSession {
     }
 
     return prompt
+  }
+
+  /**
+   * 格式化工作区上下文为提示词
+   */
+  private formatWorkspaceContext(
+    workspaceContext: { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> }
+  ): string {
+    const lines: string[] = []
+
+    lines.push('═══════════════════════════════════════════════════════════')
+    lines.push('                        工作区信息')
+    lines.push('═══════════════════════════════════════════════════════════')
+    lines.push(`当前工作区: ${workspaceContext.currentWorkspace.name}`)
+    lines.push(`  路径: ${workspaceContext.currentWorkspace.path}`)
+    lines.push(`  引用语法: @/path`)
+
+    if (workspaceContext.contextWorkspaces.length > 0) {
+      lines.push('')
+      lines.push('关联工作区:')
+      for (const ws of workspaceContext.contextWorkspaces) {
+        lines.push(`  • ${ws.name}`)
+        lines.push(`    路径: ${ws.path}`)
+        lines.push(`    引用语法: @${ws.name}:path`)
+      }
+    }
+
+    lines.push('═══════════════════════════════════════════════════════════')
+
+    return lines.join('\n')
   }
 
   /**
