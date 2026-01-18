@@ -345,8 +345,16 @@ function App() {
             <div className="flex items-center justify-between px-4 py-2 bg-background-elevated border-b border-border-subtle">
               <span className="text-sm text-text-primary">AI 对话</span>
               <StatusIndicator
-                status={healthStatus?.claudeAvailable ? 'online' : 'offline'}
-                label={healthStatus?.claudeVersion ?? 'Claude 未连接'}
+                status={
+                  config?.defaultEngine === 'iflow'
+                    ? (healthStatus?.iflowAvailable ? 'online' : 'offline')
+                    : (healthStatus?.claudeAvailable ? 'online' : 'offline')
+                }
+                label={
+                  config?.defaultEngine === 'iflow'
+                    ? (healthStatus?.iflowVersion ?? 'IFlow 未连接')
+                    : (healthStatus?.claudeVersion ?? 'Claude 未连接')
+                }
               />
             </div>
 
