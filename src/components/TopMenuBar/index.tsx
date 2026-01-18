@@ -3,12 +3,10 @@
  */
 
 import { useState } from 'react';
-import { useWorkspaceStore, useViewStore, useEventChatStore, useConfigStore, useAIChatStore } from '../../stores';
+import { useWorkspaceStore, useViewStore, useEventChatStore, useConfigStore } from '../../stores';
 import { useFloatingWindowStore } from '../../stores/floatingWindowStore';
 import * as tauri from '../../services/tauri';
 import { exportToMarkdown, generateFileName } from '../../services/chatExport';
-import { IconHistory } from '../Common/Icons';
-import type { UnifiedHistoryItem } from '../../stores/aiChatStore';
 
 interface TopMenuBarProps {
   onNewConversation: () => void;
@@ -22,14 +20,9 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
   const { showFloatingWindow } = useFloatingWindowStore();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
-  const [showHistoryMenu, setShowHistoryMenu] = useState(false);
   const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [historyItems, setHistoryItems] = useState<UnifiedHistoryItem[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
-  const [restoringSession, setRestoringSession] = useState<string | null>(null);
   const { clearMessages, messages } = useEventChatStore();
-  const { restoreFromHistory, getUnifiedHistory } = useAIChatStore();
 
   const currentWorkspace = getCurrentWorkspace();
 
@@ -71,45 +64,6 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
     clearMessages();
     onNewConversation();
     setShowNewChatConfirm(false);
-  };
-
-  // 加载历史会话
-  const handleLoadHistory = async () => {
-    setLoadingHistory(true);
-    try {
-      const items = await getUnifiedHistory();
-      setHistoryItems(items.slice(0, 10)); // 只显示最近 10 个
-    } catch (e) {
-      console.error('[TopMenuBar] 加载历史失败:', e);
-    } finally {
-      setLoadingHistory(false);
-    }
-  };
-
-  // 恢复会话
-  const handleRestoreSession = async (sessionId: string, engineId: 'claude-code' | 'iflow') => {
-    setRestoringSession(sessionId);
-    try {
-      const success = await restoreFromHistory(sessionId, engineId);
-      if (success) {
-        console.log('[TopMenuBar] 会话已恢复:', sessionId);
-        setShowHistoryMenu(false);
-      } else {
-        console.error('[TopMenuBar] 恢复会话失败');
-      }
-    } catch (e) {
-      console.error('[TopMenuBar] 恢复会话出错:', e);
-    } finally {
-      setRestoringSession(null);
-    }
-  };
-
-  // 打开历史菜单时加载历史
-  const handleOpenHistoryMenu = () => {
-    setShowHistoryMenu(!showHistoryMenu);
-    if (!showHistoryMenu) {
-      handleLoadHistory();
-    }
   };
 
   return (
@@ -184,37 +138,6 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
               />
               <div className="absolute right-0 top-full mt-1 w-40 bg-background-surface border border-border rounded-lg shadow-xl z-20 overflow-hidden">
                 <ViewMenuContent onClose={() => setShowViewMenu(false)} />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* 历史会话菜单 */}
-        <div className="relative">
-          <button
-            onClick={handleOpenHistoryMenu}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs text-text-secondary
-                     hover:text-text-primary hover:bg-background-hover transition-colors"
-            title="历史会话"
-          >
-            <IconHistory size={14} />
-            <span>历史</span>
-          </button>
-
-          {/* 历史会话下拉菜单 */}
-          {showHistoryMenu && (
-            <>
-              <div
-                className="fixed inset-0 z-10"
-                onClick={() => setShowHistoryMenu(false)}
-              />
-              <div className="absolute right-0 top-full mt-1 w-80 bg-background-surface border border-border rounded-lg shadow-xl z-20 overflow-hidden">
-                <HistoryMenuContent
-                  historyItems={historyItems}
-                  loading={loadingHistory}
-                  restoringSession={restoringSession}
-                  onRestore={handleRestoreSession}
-                />
               </div>
             </>
           )}
@@ -651,129 +574,6 @@ function ViewMenuContent({ onClose }: { onClose: () => void }) {
           重置视图
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * 历史会话菜单内容
- */
-function HistoryMenuContent({
-  historyItems,
-  loading,
-  restoringSession,
-  onRestore
-}: {
-  historyItems: UnifiedHistoryItem[];
-  loading: boolean;
-  restoringSession: string | null;
-  onRestore: (sessionId: string, engineId: 'claude-code' | 'iflow') => void;
-}) {
-  // 格式化时间
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
-
-    if (diffMins < 1) return '刚刚';
-    if (diffMins < 60) return `${diffMins} 分钟前`;
-    if (diffHours < 24) return `${diffHours} 小时前`;
-    if (diffDays < 7) return `${diffDays} 天前`;
-
-    return date.toLocaleDateString('zh-CN', {
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-
-  // 获取引擎名称
-  const getEngineName = (engineId: 'claude-code' | 'iflow') => {
-    return engineId === 'claude-code' ? 'Claude Code' : 'IFlow';
-  };
-
-  // 获取引擎颜色
-  const getEngineColor = (engineId: 'claude-code' | 'iflow') => {
-    return engineId === 'claude-code'
-      ? 'text-blue-500 bg-blue-50 dark:bg-blue-900/20'
-      : 'text-purple-500 bg-purple-50 dark:bg-purple-900/20';
-  };
-
-  return (
-    <div className="py-1">
-      {/* 头部 */}
-      <div className="px-3 py-2 border-b border-border-subtle">
-        <h3 className="text-sm font-medium text-text-primary">历史会话</h3>
-      </div>
-
-      {/* 加载状态 */}
-      {loading && (
-        <div className="flex items-center justify-center py-8">
-          <svg className="w-5 h-5 animate-spin text-text-tertiary" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-          </svg>
-        </div>
-      )}
-
-      {/* 历史会话列表 */}
-      {!loading && historyItems.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-8 text-text-tertiary">
-          <IconHistory size={24} className="mb-2 opacity-50" />
-          <p className="text-sm">暂无历史会话</p>
-        </div>
-      )}
-
-      {!loading && historyItems.length > 0 && (
-        <div className="max-h-80 overflow-y-auto">
-          {historyItems.map((item) => {
-            const isRestoring = restoringSession === item.id;
-
-            return (
-              <button
-                key={item.id}
-                onClick={() => onRestore(item.id, item.engineId)}
-                disabled={isRestoring}
-                className="w-full text-left px-3 py-2.5 hover:bg-background-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed border-b border-border-subtle last:border-b-0"
-              >
-                <div className="flex items-start gap-2">
-                  {/* 引擎标识 */}
-                  <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${getEngineColor(item.engineId)}`}>
-                    {getEngineName(item.engineId)}
-                  </span>
-
-                  {/* 标题 */}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-text-primary truncate">
-                      {item.title}
-                    </div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-text-tertiary">
-                      <span>{item.messageCount} 条消息</span>
-                      <span>•</span>
-                      <span>{formatTime(item.timestamp)}</span>
-                    </div>
-                  </div>
-
-                  {/* 恢复指示器 */}
-                  {isRestoring && (
-                    <svg className="w-4 h-4 animate-spin text-primary shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                  )}
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* 底部提示 */}
-      {!loading && historyItems.length > 0 && (
-        <div className="px-3 py-2 border-t border-border-subtle text-xs text-text-tertiary">
-          显示最近 {historyItems.length} 个会话
-        </div>
-      )}
     </div>
   );
 }
