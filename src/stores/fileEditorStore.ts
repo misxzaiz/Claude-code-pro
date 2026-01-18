@@ -5,6 +5,7 @@
 import { create } from 'zustand';
 import type { FileEditorStore } from '../types';
 import * as tauri from '../services/tauri';
+import { useViewStore } from './viewStore';
 
 /** 根据文件扩展名获取语言类型 */
 function getLanguageFromPath(path: string): string {
@@ -79,6 +80,8 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
         status: 'idle',
         error: null,
       });
+      // 自动显示编辑器
+      useViewStore.getState().setShowEditor(true);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '读取文件失败';
       console.error('[Editor] 打开文件失败:', error);
@@ -102,6 +105,8 @@ export const useFileEditorStore = create<FileEditorStore>((set, get) => ({
       status: 'idle',
       error: null,
     });
+    // 自动隐藏编辑器
+    useViewStore.getState().setShowEditor(false);
   },
 
   // 更新内容

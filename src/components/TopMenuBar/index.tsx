@@ -473,11 +473,9 @@ function WorkspaceMenuContent({ onCreateWorkspace }: {
 function ViewMenuContent({ onClose }: { onClose: () => void }) {
   const {
     showSidebar,
-    showEditor,
     showToolPanel,
     showDeveloperPanel,
     toggleSidebar,
-    toggleEditor,
     toggleToolPanel,
     toggleDeveloperPanel,
     setAIOnlyMode,
@@ -498,20 +496,6 @@ function ViewMenuContent({ onClose }: { onClose: () => void }) {
         <span>文件浏览器</span>
         <div className={`w-4 h-4 rounded border ${showSidebar ? 'bg-primary border-primary' : 'border-border'} flex items-center justify-center`}>
           {showSidebar && (
-            <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-        </div>
-      </button>
-
-      <button
-        onClick={() => handleToggle(toggleEditor)}
-        className="w-full flex items-center justify-between gap-3 px-3 py-2 text-sm text-text-secondary hover:text-text-primary hover:bg-background-hover transition-colors"
-      >
-        <span>编辑器</span>
-        <div className={`w-4 h-4 rounded border ${showEditor ? 'bg-primary border-primary' : 'border-border'} flex items-center justify-center`}>
-          {showEditor && (
             <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
             </svg>

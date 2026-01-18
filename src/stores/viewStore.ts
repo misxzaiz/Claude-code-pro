@@ -23,6 +23,7 @@ interface ViewActions {
   toggleEditor: () => void;
   toggleToolPanel: () => void;
   toggleDeveloperPanel: () => void;
+  setShowEditor: (show: boolean) => void;
   setAIOnlyMode: () => void;
   resetView: () => void;
   setSidebarWidth: (width: number) => void;
@@ -52,6 +53,9 @@ export const useViewStore = create<ViewStore>()(
 
       // 切换编辑器
       toggleEditor: () => set((state) => ({ showEditor: !state.showEditor })),
+
+      // 设置编辑器显示状态
+      setShowEditor: (show: boolean) => set({ showEditor: show }),
 
       // 切换工具面板
       toggleToolPanel: () => set((state) => ({ showToolPanel: !state.showToolPanel })),
