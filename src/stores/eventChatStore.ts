@@ -371,11 +371,7 @@ function handleAIEvent(
 
     case 'assistant_message':
       state.appendTextBlock(event.content)
-      if (event.toolCalls) {
-        for (const tool of event.toolCalls) {
-          state.appendToolCallBlock(tool.id, tool.name, tool.args)
-        }
-      }
+      // 注意：工具调用会通过独立的 tool_call_start 事件处理，不在这里处理
       break
 
     case 'tool_call_start':
@@ -387,8 +383,12 @@ function handleAIEvent(
       break
 
     case 'tool_call_end':
+      if (!event.callId) {
+        console.warn('[EventChatStore] tool_call_end 事件缺少 callId，工具状态无法更新:', event.tool)
+        break
+      }
       state.updateToolCallBlock(
-        event.callId || event.tool,
+        event.callId,
         event.success ? 'completed' : 'failed',
         String(event.result || '')
       )
@@ -1034,9 +1034,9 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
     const { conversationId, tokenBuffer } = get()
     if (!conversationId) return
 
-    // 重置 TokenBuffer
+    // 先刷新 TokenBuffer，确保已接收的内容显示出来，再重置
     if (tokenBuffer) {
-      tokenBuffer.reset()
+      tokenBuffer.end()
     }
 
     try {
