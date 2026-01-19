@@ -40,7 +40,7 @@ export const useViewStore = create<ViewStore>()(
     (set) => ({
       // 初始状态
       showSidebar: true,
-      showEditor: true,
+      showEditor: false,
       showToolPanel: true,
       showDeveloperPanel: false,  // 默认关闭 Developer 面板
       sidebarWidth: 240,
@@ -74,7 +74,7 @@ export const useViewStore = create<ViewStore>()(
       // 重置视图
       resetView: () => set({
         showSidebar: true,
-        showEditor: true,
+        showEditor: false,
         showToolPanel: true,
         showDeveloperPanel: false,
       }),
