@@ -165,6 +165,55 @@ body {
   font-style: italic;
 }
 
+/* 链接样式 */
+.prose a {
+  color: #60A5FA;
+  text-decoration: underline;
+}
+
+.prose a:hover {
+  color: #3B82F6;
+}
+
+/* 分隔线样式 */
+.prose hr {
+  border-color: rgba(255, 255, 255, 0.15);
+  margin: 12px 0;
+}
+
+/* 段落样式 */
+.prose p {
+  margin: 6px 0;
+}
+
+/* 表格样式 */
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+}
+
+.prose th,
+.prose td {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 6px 8px;
+}
+
+.prose th {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* strong/em 样式 */
+.prose strong {
+  font-weight: 600;
+  color: #F8F8F8;
+}
+
+.prose em {
+  font-style: italic;
+  color: #B4B4B8;
+}
+
 /* ============================================
    聊天输入框动画样式
    ============================================ */
