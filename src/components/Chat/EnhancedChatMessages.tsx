@@ -836,9 +836,13 @@ export function EnhancedChatMessages() {
     const round = conversationRounds[roundIndex];
     if (!round || !virtuosoRef.current) return;
 
-    const firstMessageIndex = round.messageIndices[0];
+    // 优先跳转到 AI 回复，如果没有则跳转到用户消息
+    const targetIndex = round.assistantMessage
+      ? round.messageIndices[1]  // AI 回复索引
+      : round.messageIndices[0]; // 用户消息索引
+
     virtuosoRef.current.scrollToIndex({
-      index: firstMessageIndex,
+      index: targetIndex,
       align: 'start',
       behavior: 'smooth',
     });
