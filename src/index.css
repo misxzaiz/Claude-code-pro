@@ -36,16 +36,6 @@ body {
   height: 10px;
 }
 
-/* 隐藏 Virtuoso 滚动条 - 使用属性选择器更可靠 */
-[data-virtuoso-scroller]::-webkit-scrollbar {
-  display: none;
-}
-
-[data-virtuoso-scroller] {
-  -ms-overflow-style: none;  /* IE/Edge */
-  scrollbar-width: none;      /* Firefox */
-}
-
 /* 聊天导航器面板列表滚动条 - 极致对称 */
 .chat-navigator-list::-webkit-scrollbar {
   width: 4px;
