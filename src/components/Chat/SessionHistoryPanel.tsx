@@ -1,14 +1,15 @@
 /**
  * 会话历史面板
  *
- * 显示所有历史会话（localStorage + IFlow），支持恢复和删除
+ * 显示所有历史会话（localStorage + IFlow + Claude Code 原生），支持恢复和删除
  */
 
 import { useState, useEffect } from 'react'
 import { useEventChatStore, type UnifiedHistoryItem } from '../../stores/eventChatStore'
 import { getIFlowHistoryService } from '../../services/iflowHistoryService'
+import { getClaudeCodeHistoryService } from '../../services/claudeCodeHistoryService'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
-import { Clock, MessageSquare, Trash2, RotateCcw, HardDrive, Zap, Loader2 } from 'lucide-react'
+import { Clock, MessageSquare, Trash2, RotateCcw, HardDrive, Zap, Loader2, X } from 'lucide-react'
 
 interface SessionHistoryPanelProps {
   onClose?: () => void
@@ -59,8 +60,8 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
   }
 
   // 删除会话
-  const handleDelete = (sessionId: string, source: 'local' | 'iflow') => {
-    useEventChatStore.getState().deleteHistorySession(sessionId, source)
+  const handleDelete = (sessionId: string, source: 'local' | 'iflow' | 'claude-code-native') => {
+    useEventChatStore.getState().deleteHistorySession(sessionId, source === 'local' ? 'local' : undefined)
     setHistory(prev => prev.filter(h => h.id !== sessionId))
   }
 
@@ -84,14 +85,30 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
     })
   }
 
-  // 获取引擎名称
-  const getEngineName = (engineId: 'claude-code' | 'iflow') => {
-    return engineId === 'claude-code' ? 'Claude Code' : 'IFlow'
-  }
-
-  // 获取引擎颜色
-  const getEngineColor = (engineId: 'claude-code' | 'iflow') => {
-    return engineId === 'claude-code' ? 'text-blue-500' : 'text-purple-500'
+  // 获取引擎信息
+  const getEngineInfo = (engineId: 'claude-code' | 'iflow', source: string) => {
+    if (source === 'claude-code-native') {
+      return {
+        name: 'Claude Code',
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300',
+        icon: HardDrive,
+      }
+    }
+    if (engineId === 'iflow') {
+      return {
+        name: 'IFlow',
+        color: 'text-purple-500',
+        bgColor: 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300',
+        icon: Zap,
+      }
+    }
+    return {
+      name: 'Claude Code',
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300',
+      icon: HardDrive,
+    }
   }
 
   // 过滤历史
@@ -103,11 +120,34 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
     return true
   })
 
+  // 格式化文件大小
+  const formatFileSize = (bytes: number) => {
+    if (!bytes || bytes === 0) return ''
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
+  }
+
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-8">
-        <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
-        <p className="mt-4 text-gray-500">加载历史会话...</p>
+      <div className="flex flex-col h-full">
+        {/* 头部 */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h2 className="text-base font-semibold text-text-primary">会话历史</h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-background-hover transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* 加载中 */}
+        <div className="flex flex-col items-center justify-center flex-1 p-8">
+          <Loader2 className="w-8 h-8 animate-spin text-text-tertiary" />
+          <p className="mt-4 text-sm text-text-secondary">加载历史会话...</p>
+        </div>
       </div>
     )
   }
@@ -115,97 +155,96 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
   return (
     <div className="flex flex-col h-full">
       {/* 头部 */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-        <h2 className="text-lg font-semibold">会话历史</h2>
-        <div className="flex items-center gap-2">
-          {/* 引擎筛选 */}
-          <div className="flex items-center gap-1 text-sm">
-            <button
-              onClick={() => setFilter('all')}
-              className={`px-2 py-1 rounded ${
-                filter === 'all'
-                  ? 'bg-gray-200 dark:bg-gray-600'
-                  : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              全部
-            </button>
-            <button
-              onClick={() => setFilter('claude-code')}
-              className={`px-2 py-1 rounded ${
-                filter === 'claude-code'
-                  ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300'
-                  : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              Claude Code
-            </button>
-            <button
-              onClick={() => setFilter('iflow')}
-              className={`px-2 py-1 rounded ${
-                filter === 'iflow'
-                  ? 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300'
-                  : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700'
-              }`}
-            >
-              IFlow
-            </button>
-          </div>
-        </div>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+        <h2 className="text-base font-semibold text-text-primary">会话历史</h2>
+        <button
+          onClick={onClose}
+          className="p-1 rounded-md text-text-tertiary hover:text-text-primary hover:bg-background-hover transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* 引擎筛选 */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border-subtle shrink-0">
+        <button
+          onClick={() => setFilter('all')}
+          className={`px-2 py-1 rounded-md text-xs transition-colors ${
+            filter === 'all'
+              ? 'bg-primary/20 text-primary'
+              : 'text-text-secondary hover:bg-background-hover'
+          }`}
+        >
+          全部
+        </button>
+        <button
+          onClick={() => setFilter('claude-code')}
+          className={`px-2 py-1 rounded-md text-xs transition-colors ${
+            filter === 'claude-code'
+              ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300'
+              : 'text-text-secondary hover:bg-background-hover'
+          }`}
+        >
+          Claude Code
+        </button>
+        <button
+          onClick={() => setFilter('iflow')}
+          className={`px-2 py-1 rounded-md text-xs transition-colors ${
+            filter === 'iflow'
+              ? 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300'
+              : 'text-text-secondary hover:bg-background-hover'
+          }`}
+        >
+          IFlow
+        </button>
       </div>
 
       {/* 搜索框 */}
-      <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-700">
+      <div className="px-4 py-2 border-b border-border-subtle shrink-0">
         <input
           type="text"
           placeholder="搜索会话..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600"
+          className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/50 bg-background"
         />
       </div>
 
       {/* 会话列表 */}
       <div className="flex-1 overflow-y-auto">
         {filteredHistory.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full p-8 text-gray-400">
+          <div className="flex flex-col items-center justify-center h-full p-8 text-text-tertiary">
             <MessageSquare className="w-12 h-12 mb-4 opacity-50" />
-            <p>暂无历史会话</p>
+            <p className="text-sm">暂无历史会话</p>
           </div>
         ) : (
-          <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+          <ul className="divide-y divide-border-subtle">
             {filteredHistory.map((item) => {
               const isRestoring = restoring === item.id
               const canDelete = item.source === 'local'
+              const engineInfo = getEngineInfo(item.engineId, item.source)
+              const EngineIcon = engineInfo.icon
 
               return (
                 <li
                   key={item.id}
-                  className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                  className="flex items-start gap-3 px-4 py-3 hover:bg-background-hover transition-colors"
                 >
                   {/* 引擎标识 */}
-                  <div className={`mt-1 ${getEngineColor(item.engineId)}`}>
-                    {item.engineId === 'claude-code' ? (
-                      <HardDrive className="w-5 h-5" />
-                    ) : (
-                      <Zap className="w-5 h-5" />
-                    )}
+                  <div className={`mt-0.5 ${engineInfo.color}`}>
+                    <EngineIcon className="w-4 h-4" />
                   </div>
 
                   {/* 会话信息 */}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium truncate">{item.title}</h3>
-                      <span className={`text-xs px-1.5 py-0.5 rounded ${
-                        item.engineId === 'claude-code'
-                          ? 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300'
-                          : 'bg-purple-100 text-purple-600 dark:bg-purple-900 dark:text-purple-300'
-                      }`}>
-                        {getEngineName(item.engineId)}
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-sm font-medium text-text-primary truncate">{item.title}</h3>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${engineInfo.bgColor}`}>
+                        {engineInfo.name}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-4 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    <div className="flex items-center gap-4 text-xs text-text-tertiary">
                       <span className="flex items-center gap-1">
                         <MessageSquare className="w-3 h-3" />
                         {item.messageCount} 条消息
@@ -215,7 +254,7 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
                         {formatTime(item.timestamp)}
                       </span>
                       {item.fileSize && (
-                        <span>{getIFlowHistoryService().formatFileSize(item.fileSize)}</span>
+                        <span>{formatFileSize(item.fileSize)}</span>
                       )}
                       {(item.inputTokens || item.outputTokens) && (
                         <span>
@@ -226,12 +265,12 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
                   </div>
 
                   {/* 操作按钮 */}
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 shrink-0">
                     <button
                       onClick={() => handleRestore(item.id, item.engineId)}
                       disabled={isRestoring}
-                      className={`p-1.5 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700 ${
-                        isRestoring ? 'opacity-50 cursor-not-allowed' : ''
+                      className={`p-1.5 rounded-md hover:bg-background-elevated transition-colors ${
+                        isRestoring ? 'opacity-50 cursor-not-allowed' : 'text-text-secondary hover:text-text-primary'
                       }`}
                       title="恢复会话"
                     >
@@ -244,7 +283,7 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(item.id, item.source)}
-                        className="p-1.5 rounded-md hover:bg-red-100 dark:hover:bg-red-900 text-red-500"
+                        className="p-1.5 rounded-md hover:bg-danger/10 text-text-tertiary hover:text-danger transition-colors"
                         title="删除会话"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -259,10 +298,11 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
       </div>
 
       {/* 底部提示 */}
-      <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700 text-xs text-gray-500">
-        <p>• Claude Code 会话保存在本地，可删除</p>
-        <p>• IFlow 会话从 CLI 读取，无法删除</p>
+      <div className="px-4 py-2 border-t border-border-subtle text-xs text-text-tertiary shrink-0">
+        <p>• Claude Code 会话来自原生历史记录</p>
+        <p>• 本地会话可删除，CLI 会话只读</p>
       </div>
     </div>
   )
 }
+

@@ -11,6 +11,7 @@ interface ViewState {
   showEditor: boolean;
   showToolPanel: boolean;
   showDeveloperPanel: boolean;
+  showSessionHistory: boolean; // 会话历史面板
   sidebarWidth: number;      // 侧边栏宽度（像素）
   editorWidth: number;       // 编辑器宽度百分比（0-100）
   toolPanelWidth: number;    // 工具面板宽度（像素）
@@ -23,6 +24,7 @@ interface ViewActions {
   toggleEditor: () => void;
   toggleToolPanel: () => void;
   toggleDeveloperPanel: () => void;
+  toggleSessionHistory: () => void;
   setShowEditor: (show: boolean) => void;
   setAIOnlyMode: () => void;
   resetView: () => void;
@@ -43,6 +45,7 @@ export const useViewStore = create<ViewStore>()(
       showEditor: false,
       showToolPanel: true,
       showDeveloperPanel: false,  // 默认关闭 Developer 面板
+      showSessionHistory: false,  // 默认关闭会话历史面板
       sidebarWidth: 240,
       editorWidth: 50,
       toolPanelWidth: 320,
@@ -62,6 +65,9 @@ export const useViewStore = create<ViewStore>()(
 
       // 切换 Developer 面板
       toggleDeveloperPanel: () => set((state) => ({ showDeveloperPanel: !state.showDeveloperPanel })),
+
+      // 切换会话历史面板
+      toggleSessionHistory: () => set((state) => ({ showSessionHistory: !state.showSessionHistory })),
 
       // 仅 AI 对话模式
       setAIOnlyMode: () => set({

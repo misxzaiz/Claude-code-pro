@@ -3,7 +3,7 @@
  */
 
 import { useState } from 'react';
-import { Minimize } from 'lucide-react';
+import { Minimize, Clock } from 'lucide-react';
 import { useWorkspaceStore, useViewStore, useEventChatStore, useConfigStore } from '../../stores';
 import { useFloatingWindowStore } from '../../stores/floatingWindowStore';
 import * as tauri from '../../services/tauri';
@@ -19,6 +19,7 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
   const { config } = useConfigStore();
   const { getCurrentWorkspace } = useWorkspaceStore();
   const { showFloatingWindow } = useFloatingWindowStore();
+  const { toggleSessionHistory } = useViewStore();
   const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
   const [showViewMenu, setShowViewMenu] = useState(false);
   const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
@@ -176,6 +177,15 @@ export function TopMenuBar({ onNewConversation, onSettings, onCreateWorkspace }:
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l4-4m-4 4h4" />
             </svg>
           )}
+        </button>
+
+        {/* 会话历史按钮 */}
+        <button
+          onClick={toggleSessionHistory}
+          className="p-1.5 rounded-md text-text-tertiary hover:text-text-primary hover:bg-background-hover transition-colors"
+          title="会话历史"
+        >
+          <Clock className="w-4 h-4" />
         </button>
 
         {/* 新对话按钮 */}

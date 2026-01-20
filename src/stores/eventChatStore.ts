@@ -25,6 +25,7 @@ import { parseWorkspaceReferences } from '../services/workspaceReference'
 import { getEventBus } from '../ai-runtime'
 import { TokenBuffer } from '../utils/tokenBuffer'
 import { getIFlowHistoryService } from '../services/iflowHistoryService'
+import { getClaudeCodeHistoryService, type ClaudeCodeSessionMeta } from '../services/claudeCodeHistoryService'
 
 /** 最大保留消息数量 */
 const MAX_MESSAGES = 500
@@ -57,7 +58,7 @@ interface HistoryEntry {
 }
 
 /**
- * 统一的历史条目（包含 localStorage 和 IFlow 的会话）
+ * 统一的历史条目（包含 localStorage、IFlow 和 Claude Code 原生的会话）
  */
 export interface UnifiedHistoryItem {
   id: string
@@ -65,7 +66,7 @@ export interface UnifiedHistoryItem {
   timestamp: string
   messageCount: number
   engineId: 'claude-code' | 'iflow'
-  source: 'local' | 'iflow'
+  source: 'local' | 'iflow' | 'claude-code-native'
   fileSize?: number
   inputTokens?: number
   outputTokens?: number
@@ -1188,11 +1189,14 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
   },
 
   /**
-   * 获取统一会话历史（包含 localStorage 和 IFlow）
+   * 获取统一会话历史（包含 localStorage、IFlow 和 Claude Code 原生）
    */
   getUnifiedHistory: async () => {
     const items: UnifiedHistoryItem[] = []
     const iflowService = getIFlowHistoryService()
+    const claudeCodeService = getClaudeCodeHistoryService()
+    const workspaceStore = useWorkspaceStore.getState()
+    const currentWorkspace = workspaceStore.getCurrentWorkspace()
 
     try {
       // 1. 获取 localStorage 中的会话历史
@@ -1210,11 +1214,34 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
         })
       }
 
-      // 2. 获取 IFlow 会话列表（如果当前工作区存在）
+      // 2. 获取 Claude Code 原生会话列表
+      try {
+        const claudeCodeSessions = await claudeCodeService.listSessions(
+          currentWorkspace?.path
+        )
+        for (const session of claudeCodeSessions) {
+          // 排除已经存在的会话
+          if (!items.find(item => item.id === session.sessionId)) {
+            items.push({
+              id: session.sessionId,
+              title: session.firstPrompt,
+              timestamp: session.modified,
+              messageCount: session.messageCount,
+              engineId: 'claude-code',
+              source: 'claude-code-native',
+              fileSize: session.fileSize,
+            })
+          }
+        }
+      } catch (e) {
+        console.warn('[EventChatStore] 获取 Claude Code 原生会话失败:', e)
+      }
+
+      // 3. 获取 IFlow 会话列表（如果当前工作区存在）
       try {
         const iflowSessions = await iflowService.listSessions()
         for (const session of iflowSessions) {
-          // 排除已经存在于 localStorage 的会话（避免重复）
+          // 排除已经存在的会话（避免重复）
           if (!items.find(item => item.id === session.sessionId)) {
             items.push({
               id: session.sessionId,
@@ -1233,7 +1260,7 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
         console.warn('[EventChatStore] 获取 IFlow 会话失败:', e)
       }
 
-      // 3. 按时间戳排序
+      // 4. 按时间戳排序
       items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
 
       return items
@@ -1269,7 +1296,70 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
         return true
       }
 
-      // 2. 如果指定了 IFlow 或未指定，尝试从 IFlow 恢复
+      // 2. 尝试从 Claude Code 原生历史恢复
+      if (!engineId || engineId === 'claude-code') {
+        const claudeCodeService = getClaudeCodeHistoryService()
+        const workspaceStore = useWorkspaceStore.getState()
+        const currentWorkspace = workspaceStore.getCurrentWorkspace()
+
+        const messages = await claudeCodeService.getSessionHistory(
+          sessionId,
+          currentWorkspace?.path
+        )
+
+        if (messages.length > 0) {
+          const convertedMessages = claudeCodeService.convertMessagesToFormat(messages)
+          const toolCalls = claudeCodeService.extractToolCalls(messages)
+
+          // 设置工具面板
+          useToolPanelStore.getState().clearTools()
+          for (const tool of toolCalls) {
+            useToolPanelStore.getState().addTool(tool)
+          }
+
+          // 将 Message 格式转换为 ChatMessage 格式
+          const chatMessages: ChatMessage[] = convertedMessages.map((msg): ChatMessage => {
+            if (msg.role === 'user') {
+              return {
+                id: msg.id,
+                type: 'user',
+                content: msg.content,
+                timestamp: msg.timestamp,
+              } as UserChatMessage
+            } else if (msg.role === 'assistant') {
+              return {
+                id: msg.id,
+                type: 'assistant',
+                blocks: [
+                  { type: 'text', content: msg.content }
+                ],
+                timestamp: msg.timestamp,
+                content: msg.content,
+              } as AssistantChatMessage
+            } else {
+              return {
+                id: msg.id,
+                type: 'system',
+                content: msg.content,
+                timestamp: msg.timestamp,
+              } as SystemChatMessage
+            }
+          })
+
+          set({
+            messages: chatMessages,
+            archivedMessages: [],
+            conversationId: sessionId,
+            isStreaming: false,
+            error: null,
+          })
+
+          console.log('[EventChatStore] 已从 Claude Code 原生历史恢复会话:', sessionId)
+          return true
+        }
+      }
+
+      // 3. 如果指定了 IFlow 或未指定，尝试从 IFlow 恢复
       if (!engineId || engineId === 'iflow') {
         const iflowService = getIFlowHistoryService()
         const messages = await iflowService.getSessionHistory(sessionId)
@@ -1294,7 +1384,6 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
                 timestamp: msg.timestamp,
               } as UserChatMessage
             } else if (msg.role === 'assistant') {
-              // AssistantChatMessage 需要 blocks，这里创建一个简单的文本块
               return {
                 id: msg.id,
                 type: 'assistant',
@@ -1306,7 +1395,6 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
                 toolSummary: msg.toolSummary,
               } as AssistantChatMessage
             } else {
-              // system
               return {
                 id: msg.id,
                 type: 'system',

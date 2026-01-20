@@ -6,6 +6,7 @@ import { EditorPanel } from './components/Editor';
 import { DeveloperPanel } from './components/Developer';
 import { TopMenuBar as TopMenuBarComponent } from './components/TopMenuBar';
 import { CreateWorkspaceModal } from './components/Workspace';
+import { SessionHistoryPanel } from './components/Chat/SessionHistoryPanel';
 import { useConfigStore, useEventChatStore, useViewStore, useWorkspaceStore, useFloatingWindowStore } from './stores';
 import * as tauri from './services/tauri';
 import { bootstrapEngines } from './core/engine-bootstrap';
@@ -38,6 +39,7 @@ function App() {
     showEditor,
     showToolPanel,
     showDeveloperPanel,
+    showSessionHistory,
     sidebarWidth,
     editorWidth,
     toolPanelWidth,
@@ -45,7 +47,8 @@ function App() {
     setSidebarWidth,
     setEditorWidth,
     setToolPanelWidth,
-    setDeveloperPanelWidth
+    setDeveloperPanelWidth,
+    toggleSessionHistory
   } = useViewStore();
   const { showFloatingWindow } = useFloatingWindowStore();
 
@@ -408,6 +411,24 @@ function App() {
       {/* 创建工作区模态框 */}
       {showCreateWorkspace && (
         <CreateWorkspaceModal onClose={() => setShowCreateWorkspace(false)} />
+      )}
+
+      {/* 会话历史模态框 */}
+      {showSessionHistory && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/50 z-50"
+            onClick={toggleSessionHistory}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none p-4">
+            <div
+              className="bg-background-elevated border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col pointer-events-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <SessionHistoryPanel onClose={toggleSessionHistory} />
+            </div>
+          </div>
+        </>
       )}
 
       </Layout>

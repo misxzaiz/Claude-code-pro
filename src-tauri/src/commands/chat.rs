@@ -901,3 +901,213 @@ pub async fn get_iflow_token_stats(
     let config = config_store.get().clone();
     crate::services::iflow_service::IFlowService::get_token_stats(&config, &session_id)
 }
+
+// ============================================================================
+// Claude Code 原生历史相关命令
+// ============================================================================
+
+/// Claude Code 会话元数据
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeSessionMeta {
+    pub session_id: String,
+    pub first_prompt: String,
+    pub message_count: u32,
+    pub created: String,
+    pub modified: String,
+    pub file_path: String,
+    pub file_size: u64,
+}
+
+/// Claude Code 会话消息
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClaudeCodeMessage {
+    pub role: String,
+    pub content: serde_json::Value,
+    pub timestamp: Option<String>,
+}
+
+/// 获取 Claude Code 原生会话列表
+///
+/// 读取 ~/.claude/projects/{项目名}/sessions-index.json
+#[tauri::command]
+pub async fn list_claude_code_sessions(
+    project_path: Option<String>,
+) -> Result<Vec<ClaudeCodeSessionMeta>> {
+    eprintln!("[list_claude_code_sessions] 获取 Claude Code 会话列表");
+
+    // 获取项目目录名（用于构建 .claude 路径）
+    let project_dir = if let Some(path) = project_path {
+        PathBuf::from(path)
+    } else {
+        // 如果没有指定，使用当前工作目录
+        std::env::current_dir()
+            .map_err(|e| AppError::Unknown(format!("获取当前目录失败: {}", e)))?
+    };
+
+    // 获取项目名（如 "D:\Polaris" -> "D--Polaris"）
+    let project_name = project_name_from_path(&project_dir);
+
+    // 构建 sessions-index.json 路径
+    let projects_dir = claude_projects_dir();
+    let index_path = projects_dir.join(&project_name).join("sessions-index.json");
+
+    eprintln!("[list_claude_code_sessions] 项目路径: {:?}", project_dir);
+    eprintln!("[list_claude_code_sessions] 项目名: {}", project_name);
+    eprintln!("[list_claude_code_sessions] projects 目录: {:?}", projects_dir);
+    eprintln!("[list_claude_code_sessions] 索引文件: {:?}", index_path);
+
+    if !index_path.exists() {
+        eprintln!("[list_claude_code_sessions] 索引文件不存在，返回空列表");
+        return Ok(vec![]);
+    }
+
+    // 读取并解析 sessions-index.json
+    let content = std::fs::read_to_string(&index_path)
+        .map_err(|e| AppError::Unknown(format!("读取索引文件失败: {}", e)))?;
+
+    let index: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| AppError::Unknown(format!("解析索引文件失败: {}", e)))?;
+
+    let mut sessions = vec![];
+
+    if let Some(entries) = index.get("entries").and_then(|v| v.as_array()) {
+        for entry in entries {
+            if let (Some(session_id), Some(first_prompt), Some(message_count), Some(created), Some(modified), Some(full_path))
+                = (
+                    entry.get("sessionId").and_then(|v| v.as_str()),
+                    entry.get("firstPrompt").and_then(|v| v.as_str()),
+                    entry.get("messageCount").and_then(|v| v.as_u64()),
+                    entry.get("created").and_then(|v| v.as_str()),
+                    entry.get("modified").and_then(|v| v.as_str()),
+                    entry.get("fullPath").and_then(|v| v.as_str()),
+                ) {
+                // 获取文件大小
+                let file_size = std::fs::metadata(full_path)
+                    .map(|m| m.len())
+                    .unwrap_or(0);
+
+                sessions.push(ClaudeCodeSessionMeta {
+                    session_id: session_id.to_string(),
+                    first_prompt: truncate_string(first_prompt, 100),
+                    message_count: message_count as u32,
+                    created: created.to_string(),
+                    modified: modified.to_string(),
+                    file_path: full_path.to_string(),
+                    file_size,
+                });
+            }
+        }
+    }
+
+    // 按修改时间倒序排序
+    sessions.sort_by(|a, b| b.modified.cmp(&a.modified));
+
+    eprintln!("[list_claude_code_sessions] 找到 {} 个会话", sessions.len());
+    Ok(sessions)
+}
+
+/// 获取 Claude Code 会话详细历史
+#[tauri::command]
+pub async fn get_claude_code_session_history(
+    session_id: String,
+    project_path: Option<String>,
+) -> Result<Vec<ClaudeCodeMessage>> {
+    eprintln!("[get_claude_code_session_history] 获取会话历史: {}", session_id);
+
+    let project_dir = if let Some(path) = project_path {
+        PathBuf::from(path)
+    } else {
+        std::env::current_dir()
+            .map_err(|e| AppError::Unknown(format!("获取当前目录失败: {}", e)))?
+    };
+
+    let project_name = project_name_from_path(&project_dir);
+    let projects_dir = claude_projects_dir();
+    let session_file_path = projects_dir.join(&project_name).join(format!("{}.jsonl", session_id));
+
+    eprintln!("[get_claude_code_session_history] 项目路径: {:?}", project_dir);
+    eprintln!("[get_claude_code_session_history] 项目名: {}", project_name);
+    eprintln!("[get_claude_code_session_history] projects 目录: {:?}", projects_dir);
+    eprintln!("[get_claude_code_session_history] 会话文件: {:?}", session_file_path);
+
+    if !session_file_path.exists() {
+        return Err(AppError::Unknown(format!("会话文件不存在: {:?}", session_file_path)));
+    }
+
+    let mut messages = vec![];
+    let content = std::fs::read_to_string(&session_file_path)
+        .map_err(|e| AppError::Unknown(format!("读取会话文件失败: {}", e)))?;
+
+    // 解析 jsonl 文件
+    for line in content.lines() {
+        if let Ok(entry) = serde_json::from_str::<serde_json::Value>(line) {
+            // 跳过非消息类型的条目
+            let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+            if entry_type == "user" || entry_type == "assistant" {
+                if let Some(message) = entry.get("message") {
+                    let role = entry_type.to_string();
+                    let content_val = message.get("content").cloned().unwrap_or(serde_json::json!(""));
+
+                    // 提取时间戳
+                    let timestamp = entry.get("timestamp")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string());
+
+                    messages.push(ClaudeCodeMessage {
+                        role,
+                        content: content_val,
+                        timestamp,
+                    });
+                }
+            }
+        }
+    }
+
+    eprintln!("[get_claude_code_session_history] 解析到 {} 条消息", messages.len());
+    Ok(messages)
+}
+
+/// 将路径转换为 Claude Code 项目名格式
+/// 例如: "D:\Polaris" -> "D--Polaris"
+fn project_name_from_path(path: &Path) -> String {
+    path.to_string_lossy()
+        .replace(':', "--")
+        .replace("\\", "-")
+        .replace("/", "-")
+        .replace("---", "--")  // 修复 D: -> D-- 后再加 - 导致的 D--- 问题
+}
+
+/// 获取 Claude Code projects 目录
+/// 通常位于 ~/.claude/projects/
+fn claude_projects_dir() -> PathBuf {
+    // Windows: 优先使用 USERPROFILE
+    #[cfg(windows)]
+    {
+        if let Some(userprofile) = std::env::var("USERPROFILE").ok() {
+            return PathBuf::from(userprofile).join(".claude").join("projects");
+        }
+    }
+
+    // 非-Windows 或备选方案
+    #[cfg(not(windows))]
+    {
+        if let Some(home) = std::env::var("HOME").ok() {
+            return PathBuf::from(home).join(".claude").join("projects");
+        }
+    }
+
+    // 最后备选：当前目录
+    PathBuf::from(".claude").join("projects")
+}
+
+/// 截断字符串到指定长度
+fn truncate_string(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", s.chars().take(max_len.saturating_sub(3)).collect::<String>())
+    }
+}

@@ -11,6 +11,7 @@ use commands::chat::{start_chat, continue_chat, interrupt_chat};
 use commands::chat::{
     list_iflow_sessions, get_iflow_session_history,
     get_iflow_file_contexts, get_iflow_token_stats,
+    list_claude_code_sessions, get_claude_code_session_history,
 };
 use commands::{validate_workspace_path, get_directory_info};
 use commands::window::{
@@ -198,6 +199,9 @@ pub fn run() {
             get_iflow_session_history,
             get_iflow_file_contexts,
             get_iflow_token_stats,
+            // Claude Code 原生会话历史相关
+            list_claude_code_sessions,
+            get_claude_code_session_history,
             // 工作区相关
             validate_workspace_path,
             get_directory_info,
