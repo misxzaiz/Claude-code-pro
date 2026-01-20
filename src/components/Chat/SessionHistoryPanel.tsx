@@ -6,8 +6,6 @@
 
 import { useState, useEffect } from 'react'
 import { useEventChatStore, type UnifiedHistoryItem } from '../../stores/eventChatStore'
-import { getIFlowHistoryService } from '../../services/iflowHistoryService'
-import { getClaudeCodeHistoryService } from '../../services/claudeCodeHistoryService'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { Clock, MessageSquare, Trash2, RotateCcw, HardDrive, Zap, Loader2, X } from 'lucide-react'
 
@@ -211,15 +209,15 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
       </div>
 
       {/* 会话列表 */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {filteredHistory.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full p-8 text-text-tertiary">
             <MessageSquare className="w-12 h-12 mb-4 opacity-50" />
             <p className="text-sm">暂无历史会话</p>
           </div>
         ) : (
-          <ul className="divide-y divide-border-subtle">
-            {filteredHistory.map((item) => {
+          <ul>
+            {filteredHistory.map((item, index) => {
               const isRestoring = restoring === item.id
               const canDelete = item.source === 'local'
               const engineInfo = getEngineInfo(item.engineId, item.source)
@@ -228,7 +226,7 @@ export function SessionHistoryPanel({ onClose }: SessionHistoryPanelProps) {
               return (
                 <li
                   key={item.id}
-                  className="flex items-start gap-3 px-4 py-3 hover:bg-background-hover transition-colors"
+                  className={`flex items-start gap-3 px-4 py-3 hover:bg-background-hover transition-colors ${index > 0 ? 'border-t border-border-subtle' : ''}`}
                 >
                   {/* 引擎标识 */}
                   <div className={`mt-0.5 ${engineInfo.color}`}>

@@ -25,7 +25,7 @@ import { parseWorkspaceReferences } from '../services/workspaceReference'
 import { getEventBus } from '../ai-runtime'
 import { TokenBuffer } from '../utils/tokenBuffer'
 import { getIFlowHistoryService } from '../services/iflowHistoryService'
-import { getClaudeCodeHistoryService, type ClaudeCodeSessionMeta } from '../services/claudeCodeHistoryService'
+import { getClaudeCodeHistoryService } from '../services/claudeCodeHistoryService'
 
 /** 最大保留消息数量 */
 const MAX_MESSAGES = 500
@@ -1308,7 +1308,8 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
         )
 
         if (messages.length > 0) {
-          const convertedMessages = claudeCodeService.convertMessagesToFormat(messages)
+          // 使用新的 convertToChatMessages 方法，直接获取包含 blocks 的 ChatMessage
+          const chatMessages = claudeCodeService.convertToChatMessages(messages)
           const toolCalls = claudeCodeService.extractToolCalls(messages)
 
           // 设置工具面板
@@ -1316,35 +1317,6 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
           for (const tool of toolCalls) {
             useToolPanelStore.getState().addTool(tool)
           }
-
-          // 将 Message 格式转换为 ChatMessage 格式
-          const chatMessages: ChatMessage[] = convertedMessages.map((msg): ChatMessage => {
-            if (msg.role === 'user') {
-              return {
-                id: msg.id,
-                type: 'user',
-                content: msg.content,
-                timestamp: msg.timestamp,
-              } as UserChatMessage
-            } else if (msg.role === 'assistant') {
-              return {
-                id: msg.id,
-                type: 'assistant',
-                blocks: [
-                  { type: 'text', content: msg.content }
-                ],
-                timestamp: msg.timestamp,
-                content: msg.content,
-              } as AssistantChatMessage
-            } else {
-              return {
-                id: msg.id,
-                type: 'system',
-                content: msg.content,
-                timestamp: msg.timestamp,
-              } as SystemChatMessage
-            }
-          })
 
           set({
             messages: chatMessages,

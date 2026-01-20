@@ -422,7 +422,7 @@ function App() {
           />
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none p-4">
             <div
-              className="bg-background-elevated border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col pointer-events-auto"
+              className="bg-background-elevated border border-border rounded-xl shadow-xl w-full max-w-2xl h-[80vh] flex flex-col pointer-events-auto overflow-hidden"
               onClick={(e) => e.stopPropagation()}
             >
               <SessionHistoryPanel onClose={toggleSessionHistory} />
