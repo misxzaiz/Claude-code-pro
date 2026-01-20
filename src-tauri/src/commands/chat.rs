@@ -131,10 +131,18 @@ fn find_cli_js(npm_dir: &Path) -> Result<String> {
 
 /// 构建直接调用 Node.js 的命令
 #[cfg(windows)]
-fn build_node_command(node_exe: &str, cli_js: &str, message: &str) -> Command {
+fn build_node_command(node_exe: &str, cli_js: &str, message: &str, system_prompt: Option<&str>) -> Command {
     let mut cmd = Command::new(node_exe);
-    cmd.arg(cli_js)
-        .arg("--print")
+    cmd.arg(cli_js);
+
+    // 添加 system-prompt 参数（如果有）
+    if let Some(prompt) = system_prompt {
+        if !prompt.is_empty() {
+            cmd.arg("--system-prompt").arg(prompt);
+        }
+    }
+
+    cmd.arg("--print")
         .arg("--verbose")
         .arg("--output-format")
         .arg("stream-json")
@@ -146,12 +154,20 @@ fn build_node_command(node_exe: &str, cli_js: &str, message: &str) -> Command {
 
 /// 构建直接调用 Node.js 的命令（continue_chat）
 #[cfg(windows)]
-fn build_node_command_resume(node_exe: &str, cli_js: &str, session_id: &str, message: &str) -> Command {
+fn build_node_command_resume(node_exe: &str, cli_js: &str, session_id: &str, message: &str, system_prompt: Option<&str>) -> Command {
     let mut cmd = Command::new(node_exe);
     cmd.arg(cli_js)
         .arg("--resume")
-        .arg(session_id)
-        .arg("--print")
+        .arg(session_id);
+
+    // 添加 system-prompt 参数（如果有）
+    if let Some(prompt) = system_prompt {
+        if !prompt.is_empty() {
+            cmd.arg("--system-prompt").arg(prompt);
+        }
+    }
+
+    cmd.arg("--print")
         .arg("--verbose")
         .arg("--output-format")
         .arg("stream-json")
@@ -163,25 +179,34 @@ fn build_node_command_resume(node_exe: &str, cli_js: &str, session_id: &str, mes
 
 impl ChatSession {
     /// 启动新的聊天会话
-    pub fn start(config: &Config, message: &str) -> Result<Self> {
+    pub fn start(config: &Config, message: &str, system_prompt: Option<&str>) -> Result<Self> {
         eprintln!("[ChatSession::start] 启动 Claude 会话");
         let claude_cmd = config.get_claude_cmd();
         eprintln!("[ChatSession::start] claude_cmd: {}", claude_cmd);
         eprintln!("[ChatSession::start] message 长度: {} 字符", message.len());
+        if let Some(prompt) = system_prompt {
+            eprintln!("[ChatSession::start] systemPrompt 长度: {} 字符", prompt.len());
+        }
 
         // 根据平台构建不同的命令
         #[cfg(windows)]
         let mut cmd = {
             // Windows: 直接调用 Node.js，绕过 cmd.exe
             let (node_exe, cli_js) = resolve_node_and_cli(&claude_cmd)?;
-            build_node_command(&node_exe, &cli_js, message)
+            build_node_command(&node_exe, &cli_js, message, system_prompt)
         };
 
         #[cfg(not(windows))]
         let mut cmd = {
             // Unix/Mac: 直接使用 claude 命令
-            Command::new(&claude_cmd)
-                .arg("--print")
+            let mut c = Command::new(&claude_cmd);
+            // 添加 system-prompt 参数（如果有）
+            if let Some(prompt) = system_prompt {
+                if !prompt.is_empty() {
+                    c.arg("--system-prompt").arg(prompt);
+                }
+            }
+            c.arg("--print")
                 .arg("--verbose")
                 .arg("--output-format")
                 .arg("stream-json")
@@ -327,8 +352,12 @@ pub async fn start_chat(
     state: State<'_, crate::AppState>,
     work_dir: Option<String>,
     engine_id: Option<String>,
+    system_prompt: Option<String>,
 ) -> Result<String> {
     eprintln!("[start_chat] 收到消息，长度: {} 字符", message.len());
+    if let Some(ref prompt) = system_prompt {
+        eprintln!("[start_chat] 系统提示词长度: {} 字符", prompt.len());
+    }
 
     // 从 AppState 获取实际配置（在独立作用域中，确保 MutexGuard 在 await 前释放）
     let (config, engine) = {
@@ -355,7 +384,7 @@ pub async fn start_chat(
 
     match engine {
         EngineId::ClaudeCode => {
-            start_claude_chat(&config, &message, window, state).await
+            start_claude_chat(&config, &message, window, state, system_prompt.as_deref()).await
         }
         EngineId::IFlow => {
             start_iflow_chat_internal(&config, &message, window, state).await
@@ -369,11 +398,12 @@ async fn start_claude_chat(
     message: &str,
     window: Window,
     state: State<'_, crate::AppState>,
+    system_prompt: Option<&str>,
 ) -> Result<String> {
     eprintln!("[start_claude_chat] 启动 Claude 会话");
 
     // 启动 Claude 会话
-    let session = ChatSession::start(config, message)?;
+    let session = ChatSession::start(config, message, system_prompt)?;
 
     let session_id = session.id.clone();
     let window_clone = window.clone();
@@ -545,9 +575,13 @@ pub async fn continue_chat(
     state: State<'_, crate::AppState>,
     work_dir: Option<String>,
     engine_id: Option<String>,
+    system_prompt: Option<String>,
 ) -> Result<()> {
     eprintln!("[continue_chat] 继续会话: {}", session_id);
     eprintln!("[continue_chat] 消息长度: {} 字符", message.len());
+    if let Some(ref prompt) = system_prompt {
+        eprintln!("[continue_chat] 系统提示词长度: {} 字符", prompt.len());
+    }
 
     // 从 AppState 获取实际配置（在独立作用域中，确保 MutexGuard 在 await 前释放）
     let (config, engine) = {
@@ -574,7 +608,7 @@ pub async fn continue_chat(
 
     match engine {
         EngineId::ClaudeCode => {
-            continue_claude_chat(&config, &session_id, &message, window, state).await
+            continue_claude_chat(&config, &session_id, &message, window, state, system_prompt.as_deref()).await
         }
         EngineId::IFlow => {
             continue_iflow_chat_internal(&config, &session_id, &message, window, state).await
@@ -589,6 +623,7 @@ async fn continue_claude_chat(
     message: &str,
     window: Window,
     state: State<'_, crate::AppState>,
+    system_prompt: Option<&str>,
 ) -> Result<()> {
     eprintln!("[continue_claude_chat] 继续 Claude 会话: {}", session_id);
 
@@ -609,16 +644,22 @@ async fn continue_claude_chat(
     let mut cmd = {
         let claude_cmd = config.get_claude_cmd();
         let (node_exe, cli_js) = resolve_node_and_cli(&claude_cmd)?;
-        build_node_command_resume(&node_exe, &cli_js, session_id, message)
+        build_node_command_resume(&node_exe, &cli_js, session_id, message, system_prompt)
     };
 
     #[cfg(not(windows))]
     let mut cmd = {
         let claude_cmd = config.get_claude_cmd();
-        Command::new(&claude_cmd)
+        let mut c = Command::new(&claude_cmd)
             .arg("--resume")
-            .arg(session_id)
-            .arg("--print")
+            .arg(session_id);
+        // 添加 system-prompt 参数（如果有）
+        if let Some(prompt) = system_prompt {
+            if !prompt.is_empty() {
+                c.arg("--system-prompt").arg(prompt);
+            }
+        }
+        c.arg("--print")
             .arg("--verbose")
             .arg("--output-format")
             .arg("stream-json")

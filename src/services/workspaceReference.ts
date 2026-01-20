@@ -219,3 +219,45 @@ export function buildWorkspaceContextExtra(
     })),
   };
 }
+
+/**
+ * 构建系统提示词（用于 --system-prompt 参数）
+ *
+ * 与 contextHeader 的区别：
+ * - contextHeader: 拼接到用户消息前（旧方式，已废弃）
+ * - systemPrompt: 作为独立的系统提示词传递给 CLI（新方式）
+ *
+ * @param workspaces 所有工作区列表
+ * @param contextWorkspaces 关联工作区列表
+ * @param currentWorkspaceId 当前工作区 ID
+ * @returns 系统提示词字符串
+ */
+export function buildSystemPrompt(
+  workspaces: Workspace[],
+  contextWorkspaces: Workspace[],
+  currentWorkspaceId: string | null
+): string {
+  const currentWorkspace = workspaces.find(w => w.id === currentWorkspaceId);
+
+  if (!currentWorkspace) {
+    return '';
+  }
+
+  const lines: string[] = [];
+
+  // 简洁的格式，适合作为系统提示词
+  lines.push(`你正在 ${currentWorkspace.name} 项目中工作。`);
+  lines.push(`项目路径: ${currentWorkspace.path}`);
+  lines.push(`文件引用语法: @/path`);
+
+  if (contextWorkspaces.length > 0) {
+    lines.push(``);
+    lines.push(`关联工作区:`);
+    for (const ws of contextWorkspaces) {
+      lines.push(`- ${ws.name} (${ws.path})`);
+      lines.push(`  引用语法: @${ws.name}:path`);
+    }
+  }
+
+  return lines.join('\n');
+}

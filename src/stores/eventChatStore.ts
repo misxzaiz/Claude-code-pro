@@ -21,7 +21,7 @@ import {
   generateToolSummary,
   calculateDuration,
 } from '../utils/toolSummary'
-import { parseWorkspaceReferences } from '../services/workspaceReference'
+import { parseWorkspaceReferences, buildSystemPrompt } from '../services/workspaceReference'
 import { getEventBus } from '../ai-runtime'
 import { TokenBuffer } from '../utils/tokenBuffer'
 import { getIFlowHistoryService } from '../services/iflowHistoryService'
@@ -934,21 +934,30 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
     // 获取当前工作区路径作为默认值
     const actualWorkspaceDir = workspaceDir ?? currentWorkspace.path
 
-    // 解析工作区引用并生成上下文头
-    // contextHeader 包含当前工作区和所有关联工作区的信息
-    const { processedMessage, contextHeader } = parseWorkspaceReferences(
+    // 解析工作区引用（只处理文件引用，不再生成 contextHeader）
+    const { processedMessage } = parseWorkspaceReferences(
       content,
       workspaceStore.workspaces,
-      workspaceStore.getContextWorkspaces(), // 获取关联工作区
+      workspaceStore.getContextWorkspaces(),
       workspaceStore.currentWorkspaceId
     )
 
-    // 添加上下文头到消息（UI 显示原始内容，发送给 AI 的是带上下文的内容）
-    const finalMessage = contextHeader ? contextHeader + '\n' + processedMessage : processedMessage
+    // 构建系统提示词（用于 --system-prompt 参数）
+    const systemPrompt = buildSystemPrompt(
+      workspaceStore.workspaces,
+      workspaceStore.getContextWorkspaces(),
+      workspaceStore.currentWorkspaceId
+    )
 
     // 规范化消息内容：将换行符替换为 \\n 字符串
-    // 避免 iFlow CLI 参数解析器无法正确处理包含实际换行符的参数值
-    const normalizedContent = finalMessage
+    const normalizedMessage = processedMessage
+      .replace(/\r\n/g, '\\n')
+      .replace(/\r/g, '\\n')
+      .replace(/\n/g, '\\n')
+      .trim()
+
+    // 规范化系统提示词中的换行
+    const normalizedSystemPrompt = systemPrompt
       .replace(/\r\n/g, '\\n')
       .replace(/\r/g, '\\n')
       .replace(/\n/g, '\\n')
@@ -958,7 +967,7 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
     const userMessage: UserChatMessage = {
       id: crypto.randomUUID(),
       type: 'user',
-      content, // 保持原始内容显示，用户看不到上下文头
+      content, // 保持原始内容显示
       timestamp: new Date().toISOString(),
     }
     get().addMessage(userMessage)
@@ -978,12 +987,14 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
       if (conversationId) {
         await invoke('continue_chat', {
           sessionId: conversationId,
-          message: normalizedContent,
+          message: normalizedMessage,
+          systemPrompt: normalizedSystemPrompt,
           workDir: actualWorkspaceDir,
         })
       } else {
         const newSessionId = await invoke<string>('start_chat', {
-          message: normalizedContent,
+          message: normalizedMessage,
+          systemPrompt: normalizedSystemPrompt,
           workDir: actualWorkspaceDir,
         })
         set({ conversationId: newSessionId })
