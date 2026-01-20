@@ -6,8 +6,6 @@
 
 import { useState, useEffect } from 'react'
 import { useEventChatStore, type UnifiedHistoryItem } from '../../stores/eventChatStore'
-import { getIFlowHistoryService } from '../../services/iflowHistoryService'
-import { getClaudeCodeHistoryService } from '../../services/claudeCodeHistoryService'
 import { useWorkspaceStore } from '../../stores/workspaceStore'
 import { Clock, MessageSquare, Trash2, RotateCcw, HardDrive, Zap, Loader2, X } from 'lucide-react'
 

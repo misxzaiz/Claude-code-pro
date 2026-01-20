@@ -6,7 +6,7 @@
  */
 
 import { invoke } from '@tauri-apps/api/core'
-import type { Message } from '../types'
+import type { Message, ChatMessage, ContentBlock, UserChatMessage, AssistantChatMessage, SystemChatMessage, ToolCallBlock } from '../types'
 
 // ============================================================================
 // 类型定义
@@ -150,6 +150,134 @@ export class ClaudeCodeHistoryService {
     }
 
     return toolCalls
+  }
+
+  /**
+   * 将 Claude Code 消息转换为 ChatMessage 格式（包含 blocks）
+   *
+   * Claude Code 原生消息格式：
+   * {
+   *   "role": "assistant",
+   *   "content": [
+   *     { "type": "tool_use", "name": "TodoWrite", "input": {...} },
+   *     { "type": "text", "text": "..." }
+   *   ]
+   * }
+   */
+  convertToChatMessages(messages: ClaudeCodeMessage[]): ChatMessage[] {
+    const chatMessages: ChatMessage[] = []
+
+    for (const msg of messages) {
+      const id = crypto.randomUUID()
+      const timestamp = msg.timestamp || new Date().toISOString()
+
+      if (msg.role === 'user') {
+        // 用户消息
+        const content = this.extractUserContent(msg.content)
+        chatMessages.push({
+          id,
+          type: 'user',
+          content,
+          timestamp,
+        } as UserChatMessage)
+      } else if (msg.role === 'assistant') {
+        // 助手消息 - 解析 blocks
+        const blocks = this.parseAssistantBlocks(msg.content)
+        const textContent = this.extractContentText(msg.content)
+
+        chatMessages.push({
+          id,
+          type: 'assistant',
+          blocks,
+          timestamp,
+          content: textContent || undefined,
+          isStreaming: false,
+        } as AssistantChatMessage)
+      } else {
+        // 系统消息
+        chatMessages.push({
+          id,
+          type: 'system',
+          content: String(msg.content || ''),
+          timestamp,
+        } as SystemChatMessage)
+      }
+    }
+
+    return chatMessages
+  }
+
+  /**
+   * 解析助手消息的 content 数组为 blocks
+   */
+  private parseAssistantBlocks(content: unknown): ContentBlock[] {
+    const blocks: ContentBlock[] = []
+
+    if (typeof content === 'string') {
+      // 纯文本
+      blocks.push({ type: 'text', content })
+      return blocks
+    }
+
+    if (Array.isArray(content)) {
+      for (const item of content) {
+        if (!item || typeof item !== 'object') continue
+
+        if ('type' in item) {
+          if (item.type === 'text' && 'text' in item) {
+            // 文本块
+            blocks.push({
+              type: 'text',
+              content: String(item.text),
+            })
+          } else if (item.type === 'tool_use') {
+            // 工具调用块
+            blocks.push({
+              type: 'tool_call',
+              id: String(item.id || crypto.randomUUID()),
+              name: String(item.name || 'unknown'),
+              input: (item.input as Record<string, unknown>) || {},
+              status: 'completed',
+              startedAt: new Date().toISOString(),
+            } as ToolCallBlock)
+          }
+        }
+      }
+    }
+
+    // 如果没有解析出任何 block，添加空文本块
+    if (blocks.length === 0) {
+      blocks.push({ type: 'text', content: '' })
+    }
+
+    return blocks
+  }
+
+  /**
+   * 提取用户消息内容（处理 tool_result）
+   */
+  private extractUserContent(content: unknown): string {
+    if (typeof content === 'string') {
+      return content
+    }
+
+    if (Array.isArray(content)) {
+      // 用户消息可能包含 tool_result，过滤掉
+      const texts: string[] = []
+      for (const item of content) {
+        if (item && typeof item === 'object') {
+          if ('type' in item) {
+            if (item.type === 'text' && 'text' in item) {
+              texts.push(String(item.text))
+            }
+            // 跳过 tool_result
+          }
+        }
+      }
+      return texts.join('')
+    }
+
+    return ''
   }
 
   /**
