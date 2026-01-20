@@ -944,7 +944,7 @@ export const useEventChatStore = create<EventChatState>((set, get) => ({
     )
 
     // 添加上下文头到消息（UI 显示原始内容，发送给 AI 的是带上下文的内容）
-    const finalMessage = contextHeader ? contextHeader + '\n' + processedMessage : processedMessage
+    const finalMessage = contextHeader ? processedMessage + '\n' + contextHeader : processedMessage
 
     // 规范化消息内容：将换行符替换为 \\n 字符串
     // 避免 iFlow CLI 参数解析器无法正确处理包含实际换行符的参数值

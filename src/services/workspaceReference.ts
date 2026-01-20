@@ -219,38 +219,3 @@ export function buildWorkspaceContextExtra(
     })),
   };
 }
-
-/**
- * 格式化工作区上下文为系统提示词
- *
- * 将结构化的工作区上下文转换为适合 AI 理解的提示词格式
- *
- * @param workspaceContext 工作区上下文对象
- * @returns 格式化的提示词字符串
- */
-export function formatWorkspaceContextAsPrompt(
-  workspaceContext: { currentWorkspace: { name: string; path: string }; contextWorkspaces: Array<{ name: string; path: string }> }
-): string {
-  const lines: string[] = [];
-
-  lines.push('═══════════════════════════════════════════════════════════');
-  lines.push('                        工作区信息');
-  lines.push('═══════════════════════════════════════════════════════════');
-  lines.push(`当前工作区: ${workspaceContext.currentWorkspace.name}`);
-  lines.push(`  路径: ${workspaceContext.currentWorkspace.path}`);
-  lines.push(`  引用语法: @/path`);
-
-  if (workspaceContext.contextWorkspaces.length > 0) {
-    lines.push('');
-    lines.push('关联工作区:');
-    for (const ws of workspaceContext.contextWorkspaces) {
-      lines.push(`  • ${ws.name}`);
-      lines.push(`    路径: ${ws.path}`);
-      lines.push(`    引用语法: @${ws.name}:path`);
-    }
-  }
-
-  lines.push('═══════════════════════════════════════════════════════════');
-
-  return lines.join('\n');
-}
