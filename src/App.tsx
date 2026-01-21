@@ -7,6 +7,7 @@ import { DeveloperPanel } from './components/Developer';
 import { TopMenuBar as TopMenuBarComponent } from './components/TopMenuBar';
 import { CreateWorkspaceModal } from './components/Workspace';
 import { SessionHistoryPanel } from './components/Chat/SessionHistoryPanel';
+import { TerminalPanel } from './components/Terminal';
 import { useConfigStore, useEventChatStore, useViewStore, useWorkspaceStore, useFloatingWindowStore } from './stores';
 import * as tauri from './services/tauri';
 import { bootstrapEngines } from './core/engine-bootstrap';
@@ -40,6 +41,8 @@ function App() {
     showToolPanel,
     showDeveloperPanel,
     showSessionHistory,
+    showTerminal,
+    terminalHeight,
     sidebarWidth,
     editorWidth,
     toolPanelWidth,
@@ -48,7 +51,9 @@ function App() {
     setEditorWidth,
     setToolPanelWidth,
     setDeveloperPanelWidth,
-    toggleSessionHistory
+    setTerminalHeight,
+    toggleSessionHistory,
+    toggleTerminal
   } = useViewStore();
   const { showFloatingWindow } = useFloatingWindowStore();
 
@@ -259,6 +264,20 @@ function App() {
     }
   }, [config]);
 
+  // 键盘快捷键监听
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+` 切换终端
+      if ((e.ctrlKey || e.metaKey) && e.key === '`') {
+        e.preventDefault();
+        toggleTerminal();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleTerminal]);
+
   // Sidebar 拖拽处理（右边手柄）
   const handleSidebarResize = (delta: number) => {
     const newWidth = Math.max(150, Math.min(600, sidebarWidth + delta));
@@ -402,6 +421,26 @@ function App() {
         {/* 条件渲染 DeveloperPanel */}
         {showDeveloperPanel && <DeveloperPanel width={developerPanelWidth} />}
       </div>
+
+      {/* 终端面板（底部） */}
+      {showTerminal && (
+        <>
+          <ResizeHandle
+            direction="vertical"
+            position="top"
+            onDrag={(delta) => setTerminalHeight(Math.max(200, terminalHeight - delta))}
+          />
+          <div
+            className="border-t border-border bg-[#0d1117]"
+            style={{ height: `${terminalHeight}px` }}
+          >
+            <TerminalPanel
+              workingDir={currentWorkspacePath}
+              onClosed={() => toggleTerminal()}
+            />
+          </div>
+        </>
+      )}
 
       {/* 设置模态框 */}
       {showSettings && (

@@ -4,7 +4,7 @@ interface ResizeHandleProps {
   /** 拖拽方向 */
   direction: 'horizontal' | 'vertical';
   /** 拖拽位置 */
-  position: 'left' | 'right';
+  position: 'left' | 'right' | 'top' | 'bottom';
   /** 拖拽回调 */
   onDrag: (delta: number) => void;
   /** 拖拽结束回调 */

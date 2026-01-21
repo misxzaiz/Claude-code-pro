@@ -12,10 +12,12 @@ interface ViewState {
   showToolPanel: boolean;
   showDeveloperPanel: boolean;
   showSessionHistory: boolean; // 会话历史面板
+  showTerminal: boolean; // 终端面板
   sidebarWidth: number;      // 侧边栏宽度（像素）
   editorWidth: number;       // 编辑器宽度百分比（0-100）
   toolPanelWidth: number;    // 工具面板宽度（像素）
   developerPanelWidth: number; // Developer 面板宽度（像素）
+  terminalHeight: number; // 终端面板高度（像素）
 }
 
 /** 视图操作 */
@@ -25,6 +27,7 @@ interface ViewActions {
   toggleToolPanel: () => void;
   toggleDeveloperPanel: () => void;
   toggleSessionHistory: () => void;
+  toggleTerminal: () => void;
   setShowEditor: (show: boolean) => void;
   setAIOnlyMode: () => void;
   resetView: () => void;
@@ -32,6 +35,7 @@ interface ViewActions {
   setEditorWidth: (width: number) => void;
   setToolPanelWidth: (width: number) => void;
   setDeveloperPanelWidth: (width: number) => void;
+  setTerminalHeight: (height: number) => void;
 }
 
 /** 完整的 View Store 类型 */
@@ -46,10 +50,12 @@ export const useViewStore = create<ViewStore>()(
       showToolPanel: true,
       showDeveloperPanel: false,  // 默认关闭 Developer 面板
       showSessionHistory: false,  // 默认关闭会话历史面板
+      showTerminal: false,  // 默认关闭终端面板
       sidebarWidth: 240,
       editorWidth: 50,
       toolPanelWidth: 320,
       developerPanelWidth: 400,
+      terminalHeight: 300,
 
       // 切换侧边栏
       toggleSidebar: () => set((state) => ({ showSidebar: !state.showSidebar })),
@@ -68,6 +74,9 @@ export const useViewStore = create<ViewStore>()(
 
       // 切换会话历史面板
       toggleSessionHistory: () => set((state) => ({ showSessionHistory: !state.showSessionHistory })),
+
+      // 切换终端面板
+      toggleTerminal: () => set((state) => ({ showTerminal: !state.showTerminal })),
 
       // 仅 AI 对话模式
       setAIOnlyMode: () => set({
@@ -96,6 +105,9 @@ export const useViewStore = create<ViewStore>()(
 
       // 设置 Developer 面板宽度
       setDeveloperPanelWidth: (width: number) => set({ developerPanelWidth: width }),
+
+      // 设置终端面板高度
+      setTerminalHeight: (height: number) => set({ terminalHeight: height }),
     }),
     {
       name: 'view-store',

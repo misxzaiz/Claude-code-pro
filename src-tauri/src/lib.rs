@@ -28,6 +28,7 @@ use commands::context::{
     ide_report_current_file, ide_report_file_structure, ide_report_diagnostics,
     ContextMemoryStore,
 };
+use commands::terminal::{terminal_execute_command, terminal_get_system_info};
 
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -232,6 +233,9 @@ pub fn run() {
             ide_report_current_file,
             ide_report_file_structure,
             ide_report_diagnostics,
+            // 终端相关
+            terminal_execute_command,
+            terminal_get_system_info,
 
         ])
         .run(tauri::generate_context!())

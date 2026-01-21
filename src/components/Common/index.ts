@@ -14,3 +14,5 @@ export * from '../Workspace';
 export * from '../Settings';
 export * from '../FileExplorer';
 export * from '../TopMenuBar';
+export * from '../Terminal';
+

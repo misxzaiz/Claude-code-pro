@@ -372,3 +372,28 @@ export async function saveChatToFile(content: string, defaultFileName: string): 
     throw e;
   }
 }
+
+// ============================================================================
+// 终端相关命令
+// ============================================================================
+
+/** 系统信息 */
+export interface SystemInfo {
+  os: string;
+  arch: string;
+  current_dir: string;
+}
+
+/** 执行命令并返回结果 */
+export async function terminalExecuteCommand(
+  command: string,
+  args: string[],
+  workingDir?: string
+): Promise<string> {
+  return invoke<string>('terminal_execute_command', { command, args, workingDir });
+}
+
+/** 获取系统信息 */
+export async function terminalGetSystemInfo(): Promise<SystemInfo> {
+  return invoke<SystemInfo>('terminal_get_system_info');
+}
