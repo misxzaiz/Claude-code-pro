@@ -1,0 +1,113 @@
+name: Build Polaris
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            build_args: ''
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            build_args: ''
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            build_args: ''
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            build_args: ''
+
+    runs-on: ${{ matrix.platform.os }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Install dependencies (Ubuntu)
+        if: matrix.platform.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install dependencies (macOS)
+        if: matrix.platform.os == 'macos-latest'
+        run: |
+          # macOS 通常不需要额外依赖，Xcode 工具链已预装
+          rustup target add aarch64-apple-darwin
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Tauri app
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tauriScript: npm run tauri
+          args: ${{ matrix.platform.build_args }} build --target ${{ matrix.platform.target }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: polaris-${{ matrix.platform.target }}
+          path: |
+            src-tauri/target/${{ matrix.platform.target }}/release/bundle/
+            !src-tauri/target/**/*.d
+            !src-tauri/target/**/*.rlib
+            !src-tauri/target/**/*.rmeta
+          retention-days: 30
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.dmg,artifacts/**/*.app.tar.gz,artifacts/**/*.exe,artifacts/**/*.AppImage,artifacts/**/*.deb
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
