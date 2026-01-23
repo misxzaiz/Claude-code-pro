@@ -32,7 +32,7 @@ import {
 import { Check, XCircle, Loader2, AlertTriangle, Play, ChevronDown, ChevronRight, Circle, FileSearch, FolderOpen, Code } from 'lucide-react';
 import { ChatNavigator } from './ChatNavigator';
 import { groupConversationRounds } from '../../utils/conversationRounds';
-import { extractMermaidBlocks } from '../../utils/markdown';
+import { splitMarkdownWithMermaid } from '../../utils/markdown';
 import { MermaidDiagram } from './MermaidDiagram';
 
 /** Markdown 渲染器（使用缓存优化） */
@@ -55,32 +55,31 @@ const UserBubble = memo(function UserBubble({ message }: { message: UserChatMess
   );
 });
 
-/** 文本内容块组件（支持 Mermaid 渲染） */
+/** 文本内容块组件（支持 Mermaid 渲染 - 使用分段解析） */
 const TextBlockRenderer = memo(function TextBlockRenderer({ block }: { block: TextBlock }) {
-  // 分离 Mermaid 代码块和普通 Markdown
-  const { cleanedMarkdown, mermaidBlocks } = useMemo(() => extractMermaidBlocks(block.content), [block.content]);
-  const formattedContent = useMemo(() => formatContent(cleanedMarkdown), [cleanedMarkdown]);
-  const hasMermaid = mermaidBlocks.length > 0;
+  // 将 Markdown 拆分为多个片段（文本和 Mermaid 交替）
+  const parts = useMemo(() => splitMarkdownWithMermaid(block.content), [block.content]);
 
   return (
     <div className="prose prose-invert prose-sm max-w-none">
-      {/* 普通 Markdown 内容 */}
-      {formattedContent && (
-        <div dangerouslySetInnerHTML={{ __html: formattedContent }} />
-      )}
-
-      {/* Mermaid 图表渲染 */}
-      {hasMermaid && (
-        <>
-          {mermaidBlocks.map((mermaidBlock) => (
+      {parts.map((part, index) => {
+        if (part.type === 'text') {
+          // 渲染普通 Markdown 文本
+          const formattedContent = useMemo(() => formatContent(part.content), [part.content]);
+          return (
+            <div key={`text-${index}`} dangerouslySetInnerHTML={{ __html: formattedContent }} />
+          );
+        } else {
+          // 渲染 Mermaid 图表
+          return (
             <MermaidDiagram
-              key={mermaidBlock.id}
-              code={mermaidBlock.code}
-              id={mermaidBlock.id}
+              key={`mermaid-${index}`}
+              code={part.content}
+              id={part.id || `mermaid-${index}`}
             />
-          ))}
-        </>
-      )}
+          );
+        }
+      })}
     </div>
   );
 });

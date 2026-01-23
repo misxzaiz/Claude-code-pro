@@ -98,3 +98,99 @@ export function isMermaidBlockComplete(markdown: string): boolean {
   // 闭合标签数量应该是开放标签的 2 倍（每个代码块有开始和结束）
   return closeMatches >= openMatches * 2;
 }
+
+/**
+ * Markdown 分片类型
+ * 用于将包含 Mermaid 代码块的 Markdown 拆分为多个片段
+ */
+export interface MarkdownPart {
+  /** 分片类型 */
+  type: 'text' | 'mermaid';
+  /** 内容 */
+  content: string;
+  /** 唯一标识符（仅 mermaid 类型） */
+  id?: string;
+}
+
+/**
+ * 将包含 Mermaid 代码块的 Markdown 拆分为多个片段
+ *
+ * 这个函数将 Markdown 文本按照 Mermaid 代码块的位置拆分为多个片段，
+ * 使得图表能够在正确的位置渲染。
+ *
+ * @param markdown - 原始 Markdown 文本
+ * @returns 拆分后的片段数组
+ *
+ * @example
+ * ```ts
+ * const parts = splitMarkdownWithMermaid(`
+ *   这是标题
+ *   \`\`\`mermaid
+ *   graph TD
+ *     A --> B
+ *   \`\`\`
+ *   这是后续内容
+ * `);
+ * // 返回:
+ * // [
+ * //   { type: 'text', content: '这是标题\n\n' },
+ * //   { type: 'mermaid', content: 'graph TD\n  A --> B', id: 'mermaid-xxx-0' },
+ * //   { type: 'text', content: '\n这是后续内容' }
+ * // ]
+ * ```
+ */
+export function splitMarkdownWithMermaid(markdown: string): MarkdownPart[] {
+  const parts: MarkdownPart[] = [];
+  let lastIndex = 0;
+  let mermaidIndex = 0;
+
+  // 正则匹配 ```mermaid 代码块
+  // 注意：使用非贪婪匹配和全局标志
+  const mermaidRegex = /`{3}\s*mermaid\s*\n([\s\S]*?)`{3}/gi;
+  let match;
+
+  while ((match = mermaidRegex.exec(markdown)) !== null) {
+    const [fullMatch, mermaidCode] = match;
+    const matchStart = match.index;
+    const matchEnd = matchStart + fullMatch.length;
+
+    // 添加 Mermaid 代码块之前的文本（如果有）
+    if (matchStart > lastIndex) {
+      const textContent = markdown.slice(lastIndex, matchStart);
+      if (textContent.trim()) {
+        parts.push({
+          type: 'text',
+          content: textContent,
+        });
+      }
+    }
+
+    // 添加 Mermaid 代码块
+    parts.push({
+      type: 'mermaid',
+      content: mermaidCode.trim(),
+      id: `mermaid-${Date.now()}-${mermaidIndex}`,
+    });
+
+    mermaidIndex++;
+    lastIndex = matchEnd;
+  }
+
+  // 添加剩余的文本（如果有）
+  if (lastIndex < markdown.length) {
+    const remainingContent = markdown.slice(lastIndex);
+    if (remainingContent.trim()) {
+      parts.push({
+        type: 'text',
+        content: remainingContent,
+      });
+    }
+  }
+
+  // 如果没有找到任何 Mermaid 代码块，返回整个文本
+  if (parts.length === 0) {
+    return [{ type: 'text', content: markdown }];
+  }
+
+  return parts;
+}
