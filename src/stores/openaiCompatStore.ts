@@ -122,6 +122,10 @@ export const useOpenAICompatStore = create<OpenAICompatState>((set, get) => ({
       if (newConfig.apiKey) {
         await get().validateApiKey()
       }
+
+      // 立即刷新全局健康状态
+      const { useConfigStore } = await import('./configStore')
+      await useConfigStore.getState().refreshHealth()
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : '更新预设失败',
@@ -147,6 +151,10 @@ export const useOpenAICompatStore = create<OpenAICompatState>((set, get) => ({
       if (apiKey) {
         await get().validateApiKey()
       }
+
+      // 立即刷新全局健康状态
+      const { useConfigStore } = await import('./configStore')
+      await useConfigStore.getState().refreshHealth()
     } catch (e) {
       set({
         error: e instanceof Error ? e.message : '更新 API Key 失败',

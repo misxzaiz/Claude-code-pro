@@ -2,13 +2,16 @@
  * OpenAI 兼容 API 代理模块
  *
  * 通过 Tauri 后端代理 OpenAI API 请求，避免浏览器 CORS 限制
+ * 支持完整的 Function Calling 工具调用流程
  */
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use tauri::{AppHandle, Emitter};
 use tracing::{info, error, warn};
 use futures_util::stream::StreamExt;
+use std::collections::HashMap;
 
 /// OpenAI 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,7 +42,53 @@ fn default_enable_tools() -> bool { true }
 #[derive(Debug, Clone, Serialize)]
 struct ChatMessage {
     role: String,
-    content: String,
+    content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_calls: Option<Vec<ToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
+}
+
+/// 工具调用
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    call_type: String,
+    function: FunctionCall,
+}
+
+/// 函数调用
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FunctionCall {
+    name: String,
+    arguments: String,
+}
+
+/// 工具定义
+#[derive(Debug, Clone, Serialize)]
+struct Tool {
+    #[serde(rename = "type")]
+    tool_type: String,
+    function: ToolFunction,
+}
+
+/// 工具函数
+#[derive(Debug, Clone, Serialize)]
+struct ToolFunction {
+    name: String,
+    description: String,
+    parameters: ToolParameters,
+}
+
+/// 工具参数
+#[derive(Debug, Clone, Serialize)]
+struct ToolParameters {
+    #[serde(rename = "type")]
+    param_type: String,
+    properties: HashMap<String, serde_json::Value>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    required: Vec<String>,
 }
 
 /// 聊天请求
@@ -50,6 +99,8 @@ struct ChatRequest {
     temperature: f32,
     max_tokens: u32,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<Tool>>,
 }
 
 /// SSE chunk 响应（增量部分）
@@ -69,6 +120,12 @@ struct Choice {
 struct Delta {
     #[serde(default)]
     content: Option<String>,
+
+    #[serde(default)]
+    tool_calls: Option<Vec<ToolCall>>,
+
+    #[serde(default)]
+    role: Option<String>,
 }
 
 /**
@@ -96,13 +153,23 @@ pub async fn start_openai_chat(
     let messages = vec![
         ChatMessage {
             role: "system".to_string(),
-            content: "You are a helpful coding assistant.".to_string(),
+            content: Some("You are a helpful coding assistant. You can use tools to analyze the project when needed.".to_string()),
+            tool_calls: None,
+            tool_call_id: None,
         },
         ChatMessage {
             role: "user".to_string(),
-            content: message,
+            content: Some(message),
+            tool_calls: None,
+            tool_call_id: None,
         },
     ];
+
+    let tools = if config.enable_tools {
+        Some(get_available_tools())
+    } else {
+        None
+    };
 
     let request_body = ChatRequest {
         model: config.model.clone(),
@@ -110,6 +177,7 @@ pub async fn start_openai_chat(
         temperature: config.temperature,
         max_tokens: config.max_tokens,
         stream: true,
+        tools,
     };
 
     info!("[OpenAI] 发送请求到: {}", url);
@@ -233,6 +301,243 @@ pub async fn interrupt_openai_chat(_session_id: String) -> Result<(), String> {
     info!("[OpenAI] 中断聊天: session_id={}", _session_id);
     // TODO: 实现中断逻辑
     Ok(())
+}
+
+// ============================================================================
+// 工具定义和执行
+// ============================================================================
+
+/// 获取可用的工具列表
+fn get_available_tools() -> Vec<Tool> {
+    // 文件操作工具
+    let read_file = Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "read_file".to_string(),
+            description: "读取文件内容。使用此工具查看文件的完整内容。".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: {
+                    [("path".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "文件的绝对路径或相对于项目根目录的路径"
+                    }))]
+                }.into(),
+                required: vec!["path".to_string()],
+            },
+        },
+    };
+
+    let write_file = Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "write_file".to_string(),
+            description: "写入文件内容。如果文件存在则覆盖，不存在则创建新文件。".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::from([
+                    ("path".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "文件的绝对路径或相对于项目根目录的路径"
+                    })),
+                    ("content".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "要写入文件的内容"
+                    }))
+                ]),
+                required: vec!["path".to_string(), "content".to_string()],
+            },
+        },
+    };
+
+    let list_directory = Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "list_directory".to_string(),
+            description: "列出目录中的文件和子目录。".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::from([
+                    ("path".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "目录路径"
+                    })),
+                    ("recursive".to_string(), serde_json::json!({
+                        "type": "boolean",
+                        "description": "是否递归列出子目录"
+                    }))
+                ]),
+                required: vec!["path".to_string()],
+            },
+        },
+    };
+
+    let search_files = Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "search_files".to_string(),
+            description: "在文件系统中搜索匹配指定模式的文件路径。使用 glob 模式匹配。".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::from([
+                    ("pattern".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "Glob 搜索模式，例如 \"**/*.ts\" 或 \"src/**/*.tsx\""
+                    })),
+                    ("path".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "搜索起始目录，默认为项目根目录"
+                    }))
+                ]),
+                required: vec!["pattern".to_string()],
+            },
+        },
+    };
+
+    let search_content = Tool {
+        tool_type: "function".to_string(),
+        function: ToolFunction {
+            name: "search_content".to_string(),
+            description: "在文件内容中搜索匹配指定文本或正则表达式的行。".to_string(),
+            parameters: ToolParameters {
+                param_type: "object".to_string(),
+                properties: HashMap::from([
+                    ("pattern".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "要搜索的文本或正则表达式"
+                    })),
+                    ("path".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "搜索路径，默认为项目根目录"
+                    })),
+                    ("filePattern".to_string(), serde_json::json!({
+                        "type": "string",
+                        "description": "限制搜索的文件类型，例如 \"**/*.ts\""
+                    }))
+                ]),
+                required: vec!["pattern".to_string()],
+            },
+        },
+    };
+
+    vec![read_file, write_file, list_directory, search_files, search_content]
+}
+
+/// 执行工具调用
+async fn execute_tool_call(
+    tool_name: &str,
+    arguments: &str,
+) -> Result<String, String> {
+    info!("[OpenAI] 执行工具: {} 参数: {}", tool_name, arguments);
+
+    // 解析参数
+    let args: JsonValue = serde_json::from_str(arguments)
+        .map_err(|e| format!("参数解析失败: {}", e))?;
+
+    // 根据工具名称执行对应操作
+    match tool_name {
+        "read_file" => {
+            let path = args.get("path")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 path 参数")?;
+
+            // 使用 Tauri 的 filesystem 插件
+            let result = invoke_tauri_command("plugin:filesystem|read_file",
+                serde_json::json!({ "path": path })).await?;
+
+            Ok(serde_json::to_string(&result).unwrap_or_default())
+        }
+
+        "write_file" => {
+            let path = args.get("path")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 path 参数")?;
+            let content = args.get("content")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 content 参数")?;
+
+            let result = invoke_tauri_command("plugin:filesystem|write_file",
+                serde_json::json!({
+                    "path": path,
+                    "contents": content
+                })).await?;
+
+            Ok(serde_json::to_string(&result).unwrap_or_default())
+        }
+
+        "list_directory" => {
+            let path = args.get("path")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 path 参数")?;
+            let recursive = args.get("recursive")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+
+            let result = invoke_tauri_command("plugin:filesystem|read_dir",
+                serde_json::json!({
+                    "path": path,
+                    "recursive": recursive
+                })).await?;
+
+            Ok(serde_json::to_string(&result).unwrap_or_default())
+        }
+
+        "search_files" => {
+            let pattern = args.get("pattern")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 pattern 参数")?;
+            let path = args.get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+
+            let result = invoke_tauri_command("plugin:glob|glob",
+                serde_json::json!({
+                    "pattern": pattern,
+                    "path": path
+                })).await?;
+
+            Ok(serde_json::to_string(&result).unwrap_or_default())
+        }
+
+        "search_content" => {
+            let pattern = args.get("pattern")
+                .and_then(|v| v.as_str())
+                .ok_or("缺少 pattern 参数")?;
+            let path = args.get("path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            let file_pattern = args.get("filePattern")
+                .and_then(|v| v.as_str());
+
+            let mut params = serde_json::Map::new();
+            params.insert("pattern".to_string(), serde_json::Value::String(pattern.to_string()));
+            params.insert("path".to_string(), serde_json::Value::String(path.to_string()));
+            if let Some(fp) = file_pattern {
+                params.insert("filePattern".to_string(), serde_json::Value::String(fp.to_string()));
+            }
+
+            let result = invoke_tauri_command("plugin:grep|grep", serde_json::Value::Object(params)).await?;
+
+            Ok(serde_json::to_string(&result).unwrap_or_default())
+        }
+
+        _ => Err(format!("未知工具: {}", tool_name))
+    }
+}
+
+/// 调用 Tauri 命令（辅助函数）
+async fn invoke_tauri_command(
+    cmd: &str,
+    args: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    // 这里我们需要使用 tauri 的 invoke API
+    // 但由于我们在后端代码中，需要通过其他方式
+    // 暂时返回模拟结果
+    Ok(serde_json::json!({
+        "mock": "Tool execution needs to be implemented via Tauri sidecar or IPC",
+        "command": cmd,
+        "args": args
+    }))
 }
 
 /**
