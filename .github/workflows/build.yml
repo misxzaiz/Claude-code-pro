@@ -59,21 +59,18 @@ jobs:
         if: matrix.platform.os == 'macos-latest'
         run: |
           # macOS 通常不需要额外依赖，Xcode 工具链已预装
-          rustup target add aarch64-apple-darwin
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Build frontend
-        run: npm run build
 
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_TARGET: ${{ matrix.platform.target }}
         with:
           tauriScript: npm run tauri
-          args: ${{ matrix.platform.build_args }} build --target ${{ matrix.platform.target }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
